@@ -161,6 +161,8 @@ npm run deploy
 
 Point `data.kapibala.icu` (or your own domain) at the Worker as a custom domain.
 
+> 完整、分步骤、可照抄的部署手册（含合规说明、密钥生成、验证 curl）见 **[DEPLOY.md](./DEPLOY.md)**。
+
 ## Gateway integration
 
 The gateway is a normal Node.js service that:

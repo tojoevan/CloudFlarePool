@@ -2,7 +2,13 @@ name = "cloudflarepool"
 main = "src/index.js"
 compatibility_date = "2025-08-01"
 
+# account_id 可选：运行 `wrangler login` 后单账号会被自动识别；
+# 若账号下有多个 Cloudflare 账户，请取消注释并填入你的 Account ID。
+# account_id = "your-cloudflare-account-id"
+
 # data.kapibala.icu — production custom domain for the data lake.
+# 前置条件：kapibala.icu 必须已在 Cloudflare 添加为 zone 且 NS 指向 CF，
+# 否则 custom_domain 路由创建会失败。
 routes = [
   { pattern = "data.kapibala.icu", custom_domain = true }
 ]
