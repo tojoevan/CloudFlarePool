@@ -33,7 +33,7 @@ path) for isolation. It trusts these because only the gateway knows
 
 ```js
 // pseudo-code for the gateway
-const TENANT = 'jiashiben';
+const TENANT = 'weijiashi';
 const LAKE = 'https://data.kapibala.icu';
 const SYNC_KEY = process.env.INTERNAL_KEY; // same secret as the lake
 
@@ -67,7 +67,7 @@ app.all('/api/:resource(.+)', async (c) => {
 - `data.kapibala.icu` (Cloudflare, global Anycast) is never exposed to the
   mini-program directly, preserving the compliance boundary.
 
-## Mini-program client (jiashiben)
+## Mini-program client (weijiashi)
 
 The client (`utils/sync/adapters/cloudflare.js`) talks only to the gateway at
 `home.inkspcl.com`. It sends the user session token; the gateway enriches the

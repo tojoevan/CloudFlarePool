@@ -7,8 +7,8 @@ free Cloudflare stack into a shared data lake that can back **multiple apps** �
 WeChat mini-programs, web frontends, mobile clients — each isolated as a *tenant*,
 with room to grow into paid, cross-app resource sharing later.
 
-> Status: foundational open-source release. The first real tenant is the **家事本**
-> (jiashiben) WeChat mini-program. See [`examples/gateway.md`](examples/gateway.md)
+> Status: foundational open-source release. The first real tenant is the **微家事**
+> (weijiashi) WeChat mini-program. See [`examples/gateway.md`](examples/gateway.md)
 > for how the gateway (`home.inkspcl.com`) talks to it.
 
 ---

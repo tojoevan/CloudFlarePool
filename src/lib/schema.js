@@ -4,7 +4,7 @@
 
 export const CREATE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS tenants (
-    tenant_id  TEXT PRIMARY KEY,          -- e.g. "jiashiben"
+    tenant_id  TEXT PRIMARY KEY,          -- e.g. "weijiashi"
     appid      TEXT UNIQUE,              -- WeChat AppID; gateway maps AppID -> tenant
     name       TEXT,
     plan       TEXT DEFAULT 'free',      -- free | pro | ... (paid resource sharing later)

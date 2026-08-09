@@ -51,7 +51,7 @@ test('guard: missing X-Sync-Key -> 403', async () => {
 });
 
 test('tenant + todo CRUD with per-user isolation', async () => {
-  let r = await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', appid: 'wx_x', name: '家事本' } }));
+  let r = await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', appid: 'wx_x', name: '微家事' } }));
   assert.equal(r.status, 200);
 
   r = await jres(await req('POST', '/t/jiashiben/todos', { headers: { 'X-User-Id': 'u1' }, body: { id: 't1', title: '买菜', tag: 'shop', shared: true, family_id: 'fam1' } }));

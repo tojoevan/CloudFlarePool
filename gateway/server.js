@@ -16,7 +16,7 @@ const CFG = {
   wxCode2Session: process.env.WX_CODE2SESSION_URL || 'https://api.weixin.qq.com/sns/jscode2session',
   port: Number(process.env.PORT || 3000),
   sessionSecret: process.env.SESSION_SECRET || 'change-me-session-secret',
-  tenantId: process.env.TENANT_ID || 'jiashiben',
+  tenantId: process.env.TENANT_ID || 'weijiashi',
   sessionTtl: Number(process.env.SESSION_TTL || 2592000),
 };
 

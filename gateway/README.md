@@ -34,11 +34,11 @@ gateway/
 | --- | --- |
 | `DATA_LAKE_BASE` | 数据湖地址，生产填 `https://data.kapibala.icu` |
 | `INTERNAL_KEY` | **必须与数据湖 `wrangler secret put INTERNAL_KEY` 的值完全一致** |
-| `WX_APPID` / `WX_APPSECRET` | 家事本小程序的 AppID / AppSecret（仅服务端） |
+| `WX_APPID` / `WX_APPSECRET` | 微家事小程序的 AppID / AppSecret（仅服务端） |
 | `WX_CODE2SESSION_URL` | 微信登录接口，默认即可 |
 | `PORT` | 网关监听端口（宝塔反代指向它） |
 | `SESSION_SECRET` | 会话令牌签名密钥，请改成随机长串 |
-| `TENANT_ID` | 本网关服务的租户，对应数据湖 `tenants.tenant_id`（家事本用 `jiashiben`） |
+| `TENANT_ID` | 本网关服务的租户，对应数据湖 `tenants.tenant_id`（微家事用 `weijiashi`） |
 | `SESSION_TTL` | 会话有效期（秒），默认 2592000（30 天） |
 
 > 生产环境也可不依赖 `.env`，由宝塔 / 系统直接注入这些环境变量。
@@ -70,7 +70,7 @@ node --test test/gateway.test.mjs
 - 前端流程：
   1. `wx.login()` → 拿 `code` → `POST https://home.inkspcl.com/api/login {code}` → 得到 `token`
   2. 之后所有数据请求 `wx.request` 到 `https://home.inkspcl.com/api/data/...`，Header 带 `Authorization: Bearer <token>`
-  3. 网关自动转成数据湖的 `/t/jiashiben/...` 并注入密钥与用户身份
+  3. 网关自动转成数据湖的 `/t/weijiashi/...` 并注入密钥与用户身份
 
 ## 安全须知
 

@@ -117,22 +117,22 @@ KEY="<第 4 步设的 INTERNAL_KEY>"
 curl https://data.kapibala.icu/
 
 # 无密钥应被拒（403）
-curl -i https://data.kapibala.icu/t/jiashiben/todos
+curl -i https://data.kapibala.icu/t/weijiashi/todos
 
-# 建租户（网关用 appid 映射 tenant，这里先建 jiashiben）
+# 建租户（网关用 appid 映射 tenant，这里先建 weijiashi）
 curl -X POST https://data.kapibala.icu/tenants \
   -H "X-Sync-Key: $KEY" \
   -H "Content-Type: application/json" \
-  -d '{"tenant_id":"jiashiben","appid":"wx<家事本AppID>","name":"家事本","plan":"free"}'
+  -d '{"tenant_id":"weijiashi","appid":"wx<微家事AppID>","name":"微家事","plan":"free"}'
 
 # 写入一条 todo（X-User-Id 为用户级隔离标识）
-curl -X POST https://data.kapibala.icu/t/jiashiben/todos \
+curl -X POST https://data.kapibala.icu/t/weijiashi/todos \
   -H "X-Sync-Key: $KEY" -H "X-User-Id: u_demo" \
   -H "Content-Type: application/json" \
   -d '{"id":"t1","title":"测试待办","dot":"personal","meta":{}}'
 
 # 读取（应返回刚写的）
-curl https://data.kapibala.icu/t/jiashiben/todos \
+curl https://data.kapibala.icu/t/weijiashi/todos \
   -H "X-Sync-Key: $KEY" -H "X-User-Id: u_demo"
 ```
 
@@ -152,10 +152,10 @@ curl https://data.kapibala.icu/t/jiashiben/todos \
 
 ---
 
-## 9. 下一步（回到家事本）
+## 9. 下一步（回到微家事）
 
 数据湖上线后，按既定计划推进：
 
 - **块 B**：`home.inkspcl.com` 真实 Node.js 网关（微信 code2session 登录 +
   转发 REST 到本数据湖，注入 `X-Sync-Key` + 租户 + `Bearer`）
-- **块 C**：家事本 `cloudflare.js` 适配器对齐 `/t/:tenant/*` 契约
+- **块 C**：微家事 `cloudflare.js` 适配器对齐 `/t/:tenant/*` 契约
