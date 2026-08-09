@@ -1,0 +1,25 @@
+name = "cloudflarepool"
+main = "src/index.js"
+compatibility_date = "2025-08-01"
+
+# data.kapibala.icu — production custom domain for the data lake.
+routes = [
+  { pattern = "data.kapibala.icu", custom_domain = true }
+]
+
+# Single D1 database. Multi-tenancy is logical (tenant_id column), not per-DB.
+[[d1_databases]]
+binding = "DB"
+database_name = "cloudflarepool"
+database_id = ""   # fill after: wrangler d1 create cloudflarepool
+
+# R2 bucket for images / binary blobs.
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "cloudflarepool"
+
+# Dev-only values. In production set secrets instead:
+#   wrangler secret put INTERNAL_KEY
+#   wrangler secret put ALLOW_SETUP   (leave unset / remove for prod)
+[vars]
+INTERNAL_KEY = "dev-only-change-me"
