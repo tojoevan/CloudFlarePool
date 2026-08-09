@@ -17,15 +17,18 @@ routes = [
 [[d1_databases]]
 binding = "DB"
 database_name = "cloudflarepool"
-database_id = ""   # fill after: wrangler d1 create cloudflarepool
+database_id = "dedcbd12-0a39-4451-95b2-c2a3cdf3f452"   # fill after: wrangler d1 create cloudflarepool
 
 # R2 bucket for images / binary blobs.
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "cloudflarepool"
 
-# Dev-only values. In production set secrets instead:
+# Production secret (set once, never committed):
 #   wrangler secret put INTERNAL_KEY
-#   wrangler secret put ALLOW_SETUP   (leave unset / remove for prod)
-[vars]
-INTERNAL_KEY = "dev-only-change-me"
+# For LOCAL `wrangler dev`, put `INTERNAL_KEY=dev-only-change-me` in .dev.vars
+# (git-ignored). Do NOT keep it in [vars] here — a var and a secret binding
+# cannot share the same name (Cloudflare rejects "already in use").
+#
+# ALLOW_SETUP: leave UNSET in production (the /__setup bootstrap stays disabled).
+# For local dev you may add `ALLOW_SETUP=1` to .dev.vars.
