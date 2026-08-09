@@ -13,6 +13,24 @@ with room to grow into paid, cross-app resource sharing later.
 
 ---
 
+## 致谢 Cloudflare「赛博菩萨」
+
+本项目完全构建在 Cloudflare 的免费资源之上 —— Workers、D1、R2 的免费额度，
+对独立开发者与小型应用而言堪称慷慨，因此在中文社区被亲切地称为 **「赛博菩萨」**。
+
+我们由衷感谢 Cloudflare 长期对开发者生态的投入，让一个人也能以近乎零成本把想法真正跑起来。
+
+**但请不要把这份善意当成理所当然：**
+
+- 免费额度是全体开发者共用的，请勿用于高频爬虫、CC 攻击、挖矿或任何其他滥用行为；
+- 规模化的生产场景请自觉升级付费套餐，把免费名额留给真正需要的人；
+- 本项目仅用于合规、正当的私有 / 家庭数据存储，拒绝任何违规用途。
+
+> Salute to Cloudflare — the "cyber bodhisattva" of free edge compute. Please
+> treat the free tier with respect and never abuse it.
+
+---
+
 ## Why this exists
 
 - **One backend, many apps.** A single D1 database holds every tenant, logically
