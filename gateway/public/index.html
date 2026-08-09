@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>家事本 · 数据网关</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+           background: #f6f6f4; color: #2b2b2b; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+    .card { max-width: 560px; background: #fff; border-radius: 16px; padding: 36px 40px; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    p { line-height: 1.7; color: #555; font-size: 14px; }
+    code { background: #f0f0ec; padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+    .muted { color: #999; font-size: 12px; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>家事本数据网关</h1>
+    <p>本域名 <code>home.inkspcl.com</code> 是「家事本」微信小程序的服务端网关，仅对小程序客户端提供 API，不对外提供网页服务。</p>
+    <p>它负责：微信登录态校验，以及将请求安全转发至数据湖（Cloudflare Workers + D1 + R2）。所有传输均通过 HTTPS 加密。</p>
+    <p>我们仅存储运行所必需的数据（待办、清单、归档与家庭共享项），不会收集无关的个人信息。</p>
+    <p class="muted">If you are not a 家事本 client, you may disregard this page. This endpoint is for app use only.</p>
+  </div>
+</body>
+</html>

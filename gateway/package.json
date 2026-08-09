@@ -1,0 +1,15 @@
+{
+  "name": "cloudflarepool-gateway",
+  "version": "0.1.0",
+  "description": "Reference gateway for the cloudflarepool data lake. Runs on your own ICP-filed server (e.g. home.inkspcl.com): WeChat code2session login + streaming REST proxy to data.kapibala.icu. Zero runtime dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/gateway.test.mjs"
+  },
+  "dependencies": {}
+}
