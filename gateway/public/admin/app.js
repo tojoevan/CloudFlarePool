@@ -4,6 +4,7 @@
 const $ = (s) => document.querySelector(s);
 const API = ''; // 同源网关
 const TOKEN_KEY = 'weijiashi_t4';
+const SPA_VERSION = 'v0.0.1'; // 前端语义版本（随发布维护）
 
 const getToken = () => localStorage.getItem(TOKEN_KEY);
 const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
@@ -267,6 +268,19 @@ $('#users-refresh').addEventListener('click', loadUsers);
 $('#key-issue').addEventListener('click', issueKey);
 $('#key-secret-copy').addEventListener('click', copySecret);
 $('#pw-form').addEventListener('submit', changePassword);
+
+// 启动：底部双版本（前端语义版本 + 后端 git HEAD）
+async function loadVersion() {
+  $('#ver-front').textContent = '前端 ' + SPA_VERSION;
+  try {
+    const r = await fetch(API + '/api/health');
+    const j = await r.json().catch(() => ({}));
+    $('#ver-back').textContent = '后端 ' + (j.git ? j.git : (j.name ? '已连接' : '-'));
+  } catch (_) {
+    $('#ver-back').textContent = '后端 -';
+  }
+}
+loadVersion();
 
 // 启动：有令牌直接进主界面
 if (getToken()) showMain();

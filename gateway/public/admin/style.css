@@ -25,8 +25,22 @@ html, body {
 #app {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+  padding: 24px 16px 8px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
+
+.footer {
+  margin-top: auto;
+  padding: 16px 4px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.footer .dot { margin: 0 6px; opacity: 0.5; }
+#ver-front, #ver-back { font-variant-numeric: tabular-nums; }
 
 .card {
   background: var(--card);

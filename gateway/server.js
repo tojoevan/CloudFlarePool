@@ -151,9 +151,19 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // 2) 健康检查
+    // 2) 健康检查（含后端 git HEAD，透传数据湖 /health）
     if (req.method === 'GET' && path === '/api/health') {
-      sendJson(res, 200, { name: 'cloudflarepool-gateway', status: 'ok' });
+      let backend = null;
+      try {
+        const r = await fetch(`${CFG.dataLakeBase}/health`, { method: 'GET' });
+        if (r.ok) backend = await r.json().catch(() => null);
+      } catch (_) {}
+      sendJson(res, 200, {
+        name: 'cloudflarepool-gateway',
+        status: 'ok',
+        git: backend?.git ?? null,
+        region: backend?.region ?? null,
+      });
       return;
     }
 
