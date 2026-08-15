@@ -4,28 +4,39 @@
 --
 --   wrangler d1 execute cloudflarepool --remote --file=scripts/migrate-app.sql
 --
--- NOTE: the ALTER on line ~18 is NOT re-runnable (SQLite has no
--- "ADD COLUMN IF NOT EXISTS"); the Worker's migrate() applies the same guard in
--- JS so normal deploys stay safe. The backfill and INSERT OR IGNORE below are
--- themselves idempotent.
+-- NOTE on transactions: D1's `wrangler d1 execute` REJECTS raw SQL
+-- BEGIN/COMMIT (it wants the JS storage API). Each statement below is
+-- standalone. The batch rolls back on any error, so a failed run leaves the
+-- DB untouched and can be retried after fixing the script.
+--
+-- Idempotency: the CREATE TABLE / UPDATE / INSERT are themselves idempotent
+-- (IF NOT EXISTS / OR IGNORE / WHERE NULL). The only non-idempotent line is the
+-- ALTER (SQLite has no "ADD COLUMN IF NOT EXISTS") — do not run this twice on a
+-- DB that already has the `app_id` column.
 
--- 1) Add app_id to the existing tenants table (idempotent via PRAGMA guard).
---    SQLite has no "ADD COLUMN IF NOT EXISTS", so we check column presence first.
---    Wrapped in a transaction for safety.
-BEGIN TRANSACTION;
-  -- Guard: only alter when the column is missing.
-  -- (Run by the deploy step; the Worker's migrate() does the same guard in JS.)
-  ALTER TABLE tenants ADD COLUMN app_id TEXT DEFAULT 'jiashiben';
-COMMIT;
+-- 1) Add app_id to the existing tenants table.
+ALTER TABLE tenants ADD COLUMN app_id TEXT DEFAULT 'jiashiben';
 
--- 2) Backfill any legacy tenant (the original "weijiashi" / 微家事) to the default app.
+-- 2) Backfill any legacy tenant to the default app.
 UPDATE tenants SET app_id = 'jiashiben' WHERE app_id IS NULL OR app_id = '';
 
--- 3) Register the first app record (idempotent via PRIMARY KEY ignore).
+-- 3) Create the apps registry table (the first app lives here).
+CREATE TABLE IF NOT EXISTS apps (
+  app_id       TEXT PRIMARY KEY,
+  name         TEXT,
+  owner        TEXT,
+  auth_methods TEXT DEFAULT 'wechat',
+  plan         TEXT DEFAULT 'free',
+  quota        INTEGER DEFAULT 10000,
+  status       TEXT DEFAULT 'active',
+  created_at   INTEGER
+);
+
+-- 4) Register the first app record (idempotent via PRIMARY KEY ignore).
 INSERT OR IGNORE INTO apps (app_id, name, owner, auth_methods, plan, quota, status, created_at)
 VALUES ('jiashiben', '微家事', 'weijiashi', 'wechat', 'free', 10000, 'active', strftime('%s','now'));
 
--- 4) Collections tables (idempotent; harmless if already created by schema.sql).
+-- 5) Collections tables (generic, app-scoped storage for future apps).
 CREATE TABLE IF NOT EXISTS collections (
   id           TEXT,
   app_id       TEXT,
