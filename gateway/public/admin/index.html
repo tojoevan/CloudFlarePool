@@ -32,6 +32,7 @@
 
       <nav class="tabs" id="tabs">
         <button class="tab active" data-tab="overview">概览</button>
+        <button class="tab" data-tab="data">数据</button>
         <button class="tab" data-tab="users">用户账号</button>
         <button class="tab" data-tab="keys">服务密钥</button>
         <button class="tab" data-tab="security">安全</button>
@@ -42,6 +43,32 @@
         <div id="tenant" class="tenant hidden"></div>
         <div id="cards" class="cards"></div>
         <p class="foot">只读看板 · 数据湖实时统计</p>
+      </div>
+
+      <!-- 数据浏览器 -->
+      <div class="panel hidden" id="panel-data">
+        <div class="panel-head">
+          <h2>数据浏览器</h2>
+          <div class="toolbar">
+            <select id="data-table">
+              <option value="todos">待办 todos</option>
+              <option value="archive_items">归档 archive_items</option>
+              <option value="collections">通用集合 collections</option>
+              <option value="tasks_doc">任务文档 tasks_doc（只读）</option>
+            </select>
+            <input id="data-q" type="text" placeholder="搜索（标题 / 类型 / 集合）" />
+            <button class="ghost sm" id="data-search">查询</button>
+            <button class="ghost sm" id="data-refresh">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead id="data-head"></thead>
+            <tbody id="data-body"><tr><td class="empty">加载中…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pager" id="data-pager"></div>
+        <p class="foot" id="data-meta"></p>
       </div>
 
       <!-- 用户账号 -->

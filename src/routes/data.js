@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { resolveApp } from '../lib/auth.js';
+import { hasScope, resolveApp } from '../lib/auth.js';
 
 // Multi-tenant data API. Mounted at `/t` so paths look like:
 //   /t/:tenant/todos
@@ -17,6 +17,25 @@ import { resolveApp } from '../lib/auth.js';
 //   - Rows are always scoped by tenant_id; cross-tenant access is impossible.
 
 const dataRoute = new Hono();
+
+// T3 service-token scope enforcement (closes the design §8 technical debt).
+// Only `typ=service` tokens carry an explicit scope; enforce at the HTTP-method
+// level so a leaked read-only key cannot mutate data:
+//   GET/HEAD      -> requires `data:read`
+//   POST/PUT/...  -> requires `data:write`
+// (`data:*` grants both.) The mini-program (X-Sync-Key internal channel), T2
+// account JWTs and T4 admin JWTs carry no `scopes` and are completely
+// unaffected.
+dataRoute.use('*', async (c, next) => {
+  if (c.get('userTyp') === 'service') {
+    const m = c.req.method;
+    const required = m === 'GET' || m === 'HEAD' ? 'data:read' : 'data:write';
+    if (!hasScope(c.get('scopes') || [], required)) {
+      return c.json({ error: `forbidden: scope '${required}' required for ${m}` }, 403);
+    }
+  }
+  await next();
+});
 
 const now = () => Date.now();
 // Identity comes from the X-User-Id header (gateway proxy, X-Sync-Key channel)

@@ -365,6 +365,100 @@ test('B2: rotation keeps old kid valid during grace period', async () => {
   assert.equal(oldR.status, 200, 'old kid valid during grace period');
 });
 
+// ===== Scope enforcement (T3) — closes the design §8 technical debt =====
+// A service key's scope (data:read / data:write / data:*) must be enforced by
+// the lake, not just declared in the MCP tool layer.
+test('Scope: read-only service key can read but NOT write (403)', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read'] } }));
+  assert.equal(issued.status, 200);
+  const svc = signServiceToken({
+    serviceId: issued.body.id,
+    rawSecret: issued.body.raw_secret,
+    appId: 'jiashiben',
+    scope: ['data:read'],
+  });
+
+  const read = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + svc },
+  });
+  assert.equal(read.status, 200, 'data:read key must be allowed to read');
+
+  const write = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + svc, 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'must-fail' }),
+  });
+  assert.equal(write.status, 403, 'data:read key must be forbidden from writing');
+});
+
+test('Scope: write-only service key can write but NOT read (least privilege)', async () => {
+  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:write'] } }));
+  assert.equal(issued.status, 200);
+  const svc = signServiceToken({
+    serviceId: issued.body.id,
+    rawSecret: issued.body.raw_secret,
+    appId: 'jiashiben',
+    scope: ['data:write'],
+  });
+
+  const write = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + svc, 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'scope_w1', title: 'scope write' }),
+  });
+  assert.equal(write.status, 200, 'data:write key must be allowed to write');
+  await jres(await req('DELETE', '/t/weijiashi/todos/scope_w1', { headers: { 'X-User-Id': issued.body.id } }));
+
+  const read = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + svc },
+  });
+  assert.equal(read.status, 403, 'data:write key must be forbidden from reading (strict)');
+});
+
+test('Scope: data:* wildcard grants both read and write', async () => {
+  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:*'] } }));
+  assert.equal(issued.status, 200);
+  const svc = signServiceToken({
+    serviceId: issued.body.id,
+    rawSecret: issued.body.raw_secret,
+    appId: 'jiashiben',
+    scope: ['data:*'],
+  });
+
+  const write = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + svc, 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'scope_w2', title: 'wild' }),
+  });
+  assert.equal(write.status, 200, 'data:* must be allowed to write');
+  await jres(await req('DELETE', '/t/weijiashi/todos/scope_w2', { headers: { 'X-User-Id': issued.body.id } }));
+
+  const read = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + svc },
+  });
+  assert.equal(read.status, 200, 'data:* must be allowed to read');
+});
+
+test('Scope: service token cannot manage platform resources (mint keys)', async () => {
+  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read'] } }));
+  const svc = signServiceToken({
+    serviceId: issued.body.id,
+    rawSecret: issued.body.raw_secret,
+    appId: 'jiashiben',
+    scope: ['data:read'],
+  });
+  const r = await mf.dispatchFetch(BASE + '/v1/a/jiashiben/keys', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + svc, 'content-type': 'application/json' },
+    body: JSON.stringify({ scope: ['data:read'] }),
+  });
+  assert.equal(r.status, 403, 'service token must not be able to mint new keys');
+});
+
 test('B2: /internal/account/verify rejects unknown user', async () => {
   const r = await jres(await req('POST', '/internal/account/verify', { body: { email: 'nobody@example.com', password: 'x' } }));
   assert.equal(r.status, 401, 'unknown user must be rejected');
@@ -531,6 +625,70 @@ test('Phase3: T4 self password change (wrong old -> 401, correct old -> 200)', a
   assert.equal(vOld.status, 401, 'old password must be invalid after change');
 
   await db.prepare('DELETE FROM admin_accounts WHERE id=?').bind('adm_self').run();
+});
+
+// ===== Phase 3 (B3): T4 Data Browser & Content Management =====
+test('Phase3: T4 data browser lists, searches, edits, deletes own-tenant rows', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/t/weijiashi/todos', { headers: { 'X-User-Id': 'u1' }, body: { id: 'db1', title: 'browse-me', tag: 'shop' } }));
+  await jres(await req('POST', '/t/weijiashi/archive', { headers: { 'X-User-Id': 'u1' }, body: { id: 'db_a1', type: 'todo', payload: { title: '旧' } } }));
+
+  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const hdr = { Authorization: 'Bearer ' + t4 };
+
+  // list todos
+  let r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/todos?limit=20', { method: 'GET', headers: hdr }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.table, 'todos');
+  assert.ok(r.body.rows.some((x) => x.id === 'db1'), 'seeded todo must be listed');
+  assert.equal(typeof r.body.total, 'number');
+
+  // search by title
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/todos?q=browse', { method: 'GET', headers: hdr }));
+  assert.equal(r.status, 200);
+  assert.ok(r.body.rows.some((x) => x.id === 'db1'), 'search must find the row');
+
+  // unknown table -> 404
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/nope', { method: 'GET', headers: hdr }));
+  assert.equal(r.status, 404, 'unknown table must 404 (allowlist)');
+
+  // edit todo (title + json meta)
+  r = await jres(
+    await mf.dispatchFetch(BASE + '/admin/rows/todos/db1', {
+      method: 'PUT',
+      headers: { ...hdr, 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'browse-me-edited', meta: { done: true } }),
+    })
+  );
+  assert.equal(r.status, 200);
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/todos?q=edited', { method: 'GET', headers: hdr }));
+  const row = r.body.rows.find((x) => x.id === 'db1');
+  assert.equal(row.title, 'browse-me-edited', 'title must be updated');
+  assert.deepEqual(row.meta, { done: true }, 'json column must be parsed on read');
+
+  // single-row read (used by the editor)
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/todos/db1', { method: 'GET', headers: hdr }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.title, 'browse-me-edited');
+  assert.deepEqual(r.body.meta, { done: true });
+
+  // tasks_doc is read-only -> PUT rejected
+  r = await jres(
+    await mf.dispatchFetch(BASE + '/admin/rows/tasks_doc/x', {
+      method: 'PUT',
+      headers: { ...hdr, 'content-type': 'application/json' },
+      body: JSON.stringify({ sections: [] }),
+    })
+  );
+  assert.equal(r.status, 400, 'read-only table must reject PUT');
+
+  // delete + gone
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/todos/db1', { method: 'DELETE', headers: hdr }));
+  assert.equal(r.status, 200);
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/archive_items/db_a1', { method: 'DELETE', headers: hdr }));
+  assert.equal(r.status, 200);
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/todos/db1', { method: 'DELETE', headers: hdr }));
+  assert.equal(r.status, 404, 'deleted row must 404 on second delete');
 });
 
 // Miniflare keeps a workerd subprocess alive; dispose it so the process

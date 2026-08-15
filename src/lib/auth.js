@@ -95,9 +95,20 @@ export async function verifyServiceToken(token, env) {
   if (payload.iss !== DEFAULT_ISS) throw new Error('bad iss');
   if ((payload.aud || DEFAULT_AUD) !== DEFAULT_AUD) throw new Error('bad aud');
 
+  // The DB `scope` column is the source of truth for enforcement: an admin can
+  // tighten a key's scope and it takes effect immediately, without waiting for
+  // token expiry. The signed `scp` claim is only a fallback for legacy rows.
+  let dbScope = [];
+  if (row.scope) {
+    try { dbScope = JSON.parse(row.scope); } catch { dbScope = []; }
+  }
+  if (!Array.isArray(dbScope)) dbScope = [];
+  const effectiveScope = dbScope.length ? dbScope : payload.scp || [];
+
   return {
     payload,
     key: { tenantBound: !!row.tenant_bound, tenantId: row.tenant_id },
+    scope: effectiveScope,
   };
 }
 
@@ -184,7 +195,7 @@ export async function dualGuard(c, env) {
         }
         c.set('userId', String(svc.payload.sub));
         c.set('userTyp', 'service');
-        c.set('scopes', svc.payload.scp || []);
+        c.set('scopes', svc.scope || []);
         return null;
       }
 
@@ -227,4 +238,13 @@ export async function dualGuard(c, env) {
     return c.json({ error: 'forbidden: invalid or missing X-Sync-Key' }, 403);
   }
   return null;
+}
+
+// Scope check used by routes to enforce service-token scopes (T3). Supports
+// the exact required scope (e.g. `data:read`) or the `data:*` wildcard which
+// grants both read and write. Returns false for an empty scope list.
+export function hasScope(scopes, required) {
+  if (!Array.isArray(scopes) || scopes.length === 0) return false;
+  if (scopes.includes(required)) return true;
+  return scopes.includes('data:*');
 }

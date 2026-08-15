@@ -295,3 +295,72 @@ button.ghost.sm { border: 1px solid var(--line); border-radius: 8px; }
 .form { display: block; }
 .form input { margin-bottom: 10px; }
 
+/* 数据浏览器 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.toolbar select,
+.toolbar input[type="text"] {
+  width: auto;
+  margin-bottom: 0;
+  padding: 7px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+  background: #fff;
+}
+.toolbar input[type="text"] { min-width: 180px; }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.pg-info { margin: 0 4px; }
+.sm-select {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+  color: var(--ink);
+}
+.row-actions { white-space: nowrap; }
+button.act.danger { color: var(--danger); border-color: #e8c4b8; }
+button.act:disabled { opacity: 0.4; }
+
+.edit-row td { background: #fbfcfb; }
+.edit-form { display: flex; flex-direction: column; gap: 10px; }
+.edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 14px;
+}
+.edit-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.edit-grid input,
+.edit-grid select,
+.edit-grid textarea {
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+}
+.edit-grid textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+.edit-actions { display: flex; align-items: center; gap: 8px; }
+.edit-actions .err { margin: 0; }
+

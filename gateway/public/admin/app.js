@@ -218,6 +218,187 @@ function copySecret() {
   navigator.clipboard?.writeText(v).then(() => toast('已复制')).catch(() => toast('复制失败，请手动选择', false));
 }
 
+// ===== 数据浏览器 =====
+const DATA_TABLES = {
+  todos: {
+    label: '待办',
+    cols: [['id', 'ID'], ['owner_openid', '归属'], ['title', '标题'], ['meta', 'meta'], ['tag', '标签'], ['dot', '圆点'], ['shared', '共享'], ['family_id', '家庭'], ['updated_at', '更新']],
+    edit: ['title', 'meta', 'tag', 'dot', 'shared', 'family_id'],
+    json: ['meta'],
+  },
+  archive_items: {
+    label: '归档',
+    cols: [['id', 'ID'], ['owner_openid', '归属'], ['type', '类型'], ['payload', 'payload'], ['shared', '共享'], ['family_id', '家庭'], ['created_at', '创建'], ['updated_at', '更新']],
+    edit: ['type', 'payload', 'shared', 'family_id'],
+    json: ['payload'],
+  },
+  collections: {
+    label: '通用集合',
+    cols: [['id', 'ID'], ['collection', '集合'], ['owner_openid', '归属'], ['doc', 'doc'], ['updated_at', '更新']],
+    edit: ['doc'],
+    json: ['doc'],
+  },
+  tasks_doc: {
+    label: '任务文档',
+    cols: [['tenant_id', '租户'], ['owner_openid', '归属'], ['sections', 'sections'], ['updated_at', '更新']],
+    edit: [],
+    json: ['sections'],
+  },
+};
+
+const dataState = { table: 'todos', q: '', limit: 20, offset: 0, total: 0 };
+
+function fmtCell(v) {
+  if (v === null || v === undefined || v === '') return '-';
+  if (typeof v === 'object') {
+    let s;
+    try { s = JSON.stringify(v); } catch { s = String(v); }
+    return s.length > 80 ? `<span title="${esc(s)}">${esc(s.slice(0, 80))}…</span>` : esc(s);
+  }
+  if (typeof v === 'boolean') return v ? '是' : '否';
+  return esc(String(v));
+}
+
+function dataHead() {
+  const t = DATA_TABLES[dataState.table];
+  let h = '<tr><th>操作</th>';
+  for (const [, label] of t.cols) h += `<th>${label}</th>`;
+  $('#data-head').innerHTML = h + '</tr>';
+}
+
+async function loadData() {
+  const t = DATA_TABLES[dataState.table];
+  const body = $('#data-body');
+  body.innerHTML = `<tr><td class="empty" colspan="${t.cols.length + 1}">加载中…</td></tr>`;
+  try {
+    const params = new URLSearchParams({ limit: dataState.limit, offset: dataState.offset });
+    if (dataState.q) params.set('q', dataState.q);
+    const d = await api(`/api/t4data/rows/${dataState.table}?${params.toString()}`);
+    dataState.total = d.total;
+    if (!d.rows.length) {
+      body.innerHTML = `<tr><td class="empty" colspan="${t.cols.length + 1}">暂无数据</td></tr>`;
+    } else {
+      body.innerHTML = '';
+      for (const row of d.rows) {
+        const tr = document.createElement('tr');
+        tr.dataset.row = row.id;
+        let cells = `<td class="row-actions"><button class="ghost sm act" data-act="edit" data-id="${esc(row.id)}">编辑</button>`;
+        if (t.edit.length) cells += ` <button class="ghost sm act danger" data-act="del" data-id="${esc(row.id)}">删除</button>`;
+        cells += '</td>';
+        for (const [k] of t.cols) cells += `<td>${fmtCell(row[k])}</td>`;
+        tr.innerHTML = cells;
+        body.appendChild(tr);
+      }
+      body.querySelectorAll('.act').forEach((b) =>
+        b.addEventListener('click', () => {
+          if (b.dataset.act === 'del') delRow(b.dataset.id);
+          else editRow(b.dataset.id);
+        })
+      );
+    }
+  } catch (err) {
+    body.innerHTML = `<tr><td class="empty" colspan="${t.cols.length + 1}">${esc(err.message)}</td></tr>`;
+  }
+  renderPager();
+  $('#data-meta').textContent = `共 ${dataState.total} 条 · 第 ${Math.floor(dataState.offset / dataState.limit) + 1} 页`;
+}
+
+function renderPager() {
+  const pages = Math.max(1, Math.ceil(dataState.total / dataState.limit));
+  const cur = Math.floor(dataState.offset / dataState.limit) + 1;
+  $('#data-pager').innerHTML =
+    `<button class="ghost sm" id="pg-prev" ${cur <= 1 ? 'disabled' : ''}>‹ 上一页</button>` +
+    `<span class="pg-info">第 ${cur} / ${pages} 页</span>` +
+    `<button class="ghost sm" id="pg-next" ${cur >= pages ? 'disabled' : ''}>下一页 ›</button>` +
+    `<select id="pg-size" class="sm-select"><option value="20"${dataState.limit === 20 ? ' selected' : ''}>20/页</option><option value="50"${dataState.limit === 50 ? ' selected' : ''}>50/页</option><option value="100"${dataState.limit === 100 ? ' selected' : ''}>100/页</option></select>`;
+  const prev = $('#pg-prev'), next = $('#pg-next'), size = $('#pg-size');
+  if (prev) prev.addEventListener('click', () => { dataState.offset = Math.max(0, dataState.offset - dataState.limit); loadData(); });
+  if (next) next.addEventListener('click', () => { dataState.offset += dataState.limit; loadData(); });
+  if (size) size.addEventListener('change', () => { dataState.limit = +size.value; dataState.offset = 0; loadData(); });
+}
+
+async function editRow(id) {
+  const t = DATA_TABLES[dataState.table];
+  const target = document.querySelector(`#data-body tr[data-row="${CSS.escape(id)}"]`);
+  if (!target) return;
+  // 已有编辑行则先收起
+  const existing = document.querySelector('#data-body tr.edit-row');
+  if (existing) existing.remove();
+
+  let row;
+  try {
+    row = await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}`);
+  } catch (err) {
+    toast(err.message, false);
+    return;
+  }
+
+  let fields = '';
+  for (const col of t.edit) {
+    const v = row[col];
+    let input;
+    if (t.json.includes(col)) {
+      let txt = '';
+      try { txt = JSON.stringify(v, null, 2); } catch { txt = String(v ?? ''); }
+      input = `<textarea data-f="${col}" rows="3">${esc(txt)}</textarea>`;
+    } else if (col === 'shared') {
+      const on = !!v;
+      input = `<select data-f="${col}"><option value="1"${on ? ' selected' : ''}>是</option><option value="0"${!on ? ' selected' : ''}>否</option></select>`;
+    } else {
+      input = `<input type="text" data-f="${col}" value="${esc(v ?? '')}" />`;
+    }
+    fields += `<label><span>${col}</span>${input}</label>`;
+  }
+  if (!fields) fields = '<p class="empty">该表只读，不可编辑</p>';
+
+  const tr = document.createElement('tr');
+  tr.className = 'edit-row';
+  tr.innerHTML =
+    `<td colspan="${t.cols.length + 1}"><div class="edit-form">` +
+    `<div class="edit-grid">${fields}</div>` +
+    `<div class="edit-actions"><button class="primary sm" id="edit-save">保存</button>` +
+    `<button class="ghost sm" id="edit-cancel">取消</button><span class="err" id="edit-msg"></span></div>` +
+    `</div></td>`;
+  target.after(tr);
+
+  $('#edit-cancel').addEventListener('click', () => tr.remove());
+  $('#edit-save').addEventListener('click', async () => {
+    const payload = {};
+    const msg = $('#edit-msg');
+    msg.textContent = '';
+    for (const col of t.edit) {
+      const el = tr.querySelector(`[data-f="${col}"]`);
+      const raw = el.value;
+      if (t.json.includes(col)) {
+        try { payload[col] = JSON.parse(raw); } catch { msg.textContent = `${col} 不是合法 JSON`; return; }
+      } else if (col === 'shared') {
+        payload[col] = raw === '1';
+      } else {
+        payload[col] = raw;
+      }
+    }
+    try {
+      await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) });
+      toast('已保存');
+      tr.remove();
+      loadData();
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  });
+}
+
+async function delRow(id) {
+  if (!confirm(`确认删除 ${dataState.table} 中的记录 ${id}？此操作不可恢复。`)) return;
+  try {
+    await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    toast('已删除');
+    loadData();
+  } catch (err) {
+    toast(err.message, false);
+  }
+}
+
 // ===== 安全：改密 =====
 async function changePassword(e) {
   e.preventDefault();
@@ -247,6 +428,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.panel').forEach((p) => p.classList.add('hidden'));
   $('#panel-' + name).classList.remove('hidden');
+  if (name === 'data') { dataHead(); loadData(); }
   if (name === 'users') loadUsers();
   if (name === 'keys') { $('#key-secret').classList.add('hidden'); loadKeys(); }
 }
@@ -268,6 +450,18 @@ $('#users-refresh').addEventListener('click', loadUsers);
 $('#key-issue').addEventListener('click', issueKey);
 $('#key-secret-copy').addEventListener('click', copySecret);
 $('#pw-form').addEventListener('submit', changePassword);
+
+// 数据浏览器事件
+$('#data-table').addEventListener('change', (e) => {
+  dataState.table = e.target.value;
+  dataState.q = ''; dataState.offset = 0;
+  $('#data-q').value = '';
+  dataHead();
+  loadData();
+});
+$('#data-search').addEventListener('click', () => { dataState.q = $('#data-q').value.trim(); dataState.offset = 0; loadData(); });
+$('#data-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { dataState.q = $('#data-q').value.trim(); dataState.offset = 0; loadData(); } });
+$('#data-refresh').addEventListener('click', () => { dataState.offset = 0; loadData(); });
 
 // 启动：底部双版本（前端语义版本 + 后端 git HEAD）
 async function loadVersion() {

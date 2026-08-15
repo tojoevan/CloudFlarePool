@@ -34,6 +34,20 @@ app.use('*', async (c, next) => {
   await next();
 });
 
+// Service tokens (T3) may consume tenant data but must NOT manage platform
+// resources (apps / tenants / api_keys) — e.g. a leaked key must not mint
+// more keys. Only the internal X-Sync-Key channel and admin (T4) JWTs keep
+// access here; account (T2) JWTs keep their current behavior.
+const forbidService = async (c, next) => {
+  if (c.get('userTyp') === 'service') {
+    return c.json({ error: 'forbidden: service tokens cannot manage platform resources' }, 403);
+  }
+  await next();
+};
+app.use('/tenants', forbidService);
+app.use('/tenants/*', forbidService);
+app.use('/v1/a/*', forbidService);
+
 // --- Dev bootstrap (disabled in production) --------------------------------
 // Creates tables when ALLOW_SETUP=1. In production use
 //   wrangler d1 execute cloudflarepool --remote --file=schema.sql

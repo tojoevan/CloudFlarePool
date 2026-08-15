@@ -250,4 +250,195 @@ adminRoute.post('/keys/:id/revoke', async (c) => {
   return c.json({ ok: true, id, status: 'revoked' });
 });
 
+// ===== Data Browser & Content Management（数据浏览器/内容管理） =====
+// 管理员按租户浏览/编辑/删除业务数据。表名与列名**仅来自下方白名单**，绝不
+// 拼接用户输入，杜绝 SQL 注入；tenant 角色只能看/改自己租户（userTid），
+// platform 角色可选 ?tid= 过滤（缺省看全部）。
+//   GET    /admin/rows/:table?limit=&offset=&q=&owner=&tid=
+//   PUT    /admin/rows/:table/:id   （仅白名单内的可编辑字段）
+//   DELETE /admin/rows/:table/:id   （tasks_doc 不可删，返回 400）
+
+const ROW_TABLES = {
+  todos: {
+    label: '待办',
+    cols: ['id', 'owner_openid', 'title', 'meta', 'tag', 'dot', 'shared', 'family_id', 'updated_at'],
+    searchable: ['title'],
+    editable: ['title', 'meta', 'tag', 'dot', 'shared', 'family_id'],
+    jsonCols: ['meta'],
+    key: 'id',
+  },
+  tasks_doc: {
+    label: '任务文档',
+    cols: ['tenant_id', 'owner_openid', 'sections', 'updated_at'],
+    searchable: [],
+    editable: [],
+    jsonCols: ['sections'],
+    key: 'owner_openid',
+  },
+  archive_items: {
+    label: '归档',
+    cols: ['id', 'owner_openid', 'type', 'payload', 'shared', 'family_id', 'created_at', 'updated_at'],
+    searchable: ['type'],
+    editable: ['type', 'payload', 'shared', 'family_id'],
+    jsonCols: ['payload'],
+    key: 'id',
+  },
+  collections: {
+    label: '通用集合',
+    cols: ['id', 'collection', 'owner_openid', 'doc', 'updated_at'],
+    searchable: ['collection'],
+    editable: ['doc'],
+    jsonCols: ['doc'],
+    key: 'id',
+  },
+};
+
+function parseAdminJson(v) {
+  if (typeof v !== 'string') return v;
+  try { return JSON.parse(v); } catch { return v; }
+}
+
+// 组装租户可见行的查询条件；返回 { where, params }
+function rowWhere(c, meta, { withOwnerKey = false } = {}) {
+  const role = c.get('userRole');
+  const ownTid = c.get('userTid');
+  const where = [];
+  const params = [];
+
+  if (role !== 'platform') {
+    where.push('tenant_id = ?');
+    params.push(ownTid || 'weijiashi');
+  } else {
+    const tid = c.req.query('tid');
+    if (tid) { where.push('tenant_id = ?'); params.push(tid); }
+  }
+
+  const owner = c.req.query('owner');
+  if (owner && !withOwnerKey) { where.push('owner_openid = ?'); params.push(owner); }
+
+  const q = c.req.query('q');
+  if (q && meta.searchable.length) {
+    where.push('(' + meta.searchable.map((col) => `${col} LIKE ?`).join(' OR ') + ')');
+    for (let i = 0; i < meta.searchable.length; i++) params.push(`%${q}%`);
+  }
+  return { where: where.length ? where.join(' AND ') : '1=1', params };
+}
+
+adminRoute.get('/rows/:table', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const meta = ROW_TABLES[c.req.param('table')];
+  if (!meta) return c.json({ error: 'unknown table' }, 404);
+
+  const db = c.env.DB;
+  const { where, params } = rowWhere(c, meta);
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10) || 20, 100);
+  const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0);
+
+  const totalRow = await db
+    .prepare(`SELECT COUNT(*) AS n FROM ${c.req.param('table')} WHERE ${where}`)
+    .bind(...params)
+    .first();
+  const { results } = await db
+    .prepare(`SELECT * FROM ${c.req.param('table')} WHERE ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
+    .bind(...params, limit, offset)
+    .all();
+
+  const rows = (results || []).map((r) => {
+    const o = {};
+    for (const col of meta.cols) o[col] = meta.jsonCols.includes(col) ? parseAdminJson(r[col]) : r[col];
+    return o;
+  });
+  return c.json({ table: c.req.param('table'), label: meta.label, rows, total: totalRow?.n || 0, limit, offset });
+});
+
+adminRoute.get('/rows/:table/:id', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const meta = ROW_TABLES[c.req.param('table')];
+  if (!meta) return c.json({ error: 'unknown table' }, 404);
+
+  const db = c.env.DB;
+  const table = c.req.param('table');
+  const id = c.req.param('id');
+  const { where, params } = rowWhere(c, meta, { withOwnerKey: true });
+  const row = await db
+    .prepare(`SELECT * FROM ${table} WHERE ${where} AND ${meta.key} = ?`)
+    .bind(...params, id)
+    .first();
+  if (!row) return c.json({ error: 'not found in your scope' }, 404);
+  const o = {};
+  for (const col of meta.cols) o[col] = meta.jsonCols.includes(col) ? parseAdminJson(row[col]) : row[col];
+  return c.json(o);
+});
+
+adminRoute.put('/rows/:table/:id', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const meta = ROW_TABLES[c.req.param('table')];
+  if (!meta) return c.json({ error: 'unknown table' }, 404);
+  if (!meta.editable.length) return c.json({ error: 'table is read-only' }, 400);
+
+  const db = c.env.DB;
+  const table = c.req.param('table');
+  const id = c.req.param('id');
+  const { where, params } = rowWhere(c, meta, { withOwnerKey: true });
+  const exist = await db
+    .prepare(`SELECT * FROM ${table} WHERE ${where} AND ${meta.key} = ?`)
+    .bind(...params, id)
+    .first();
+  if (!exist) return c.json({ error: 'not found in your scope' }, 404);
+
+  const b = await c.req.json().catch(() => ({}));
+  const sets = [];
+  const vp = [];
+  for (const col of meta.editable) {
+    if (b[col] === undefined) continue;
+    sets.push(`${col} = ?`);
+    if (meta.jsonCols.includes(col)) {
+      vp.push(typeof b[col] === 'string' ? b[col] : JSON.stringify(b[col]));
+    } else if (col === 'shared') {
+      vp.push(b[col] ? 1 : 0);
+    } else {
+      vp.push(b[col]);
+    }
+  }
+  if (!sets.length) return c.json({ error: 'no editable fields provided' }, 400);
+  sets.push('updated_at = ?');
+  vp.push(Date.now());
+  vp.push(...params, id);
+
+  await db
+    .prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE ${where} AND ${meta.key} = ?`)
+    .bind(...vp)
+    .run();
+  return c.json({ ok: true, id });
+});
+
+adminRoute.delete('/rows/:table/:id', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const meta = ROW_TABLES[c.req.param('table')];
+  if (!meta) return c.json({ error: 'unknown table' }, 404);
+  if (!meta.editable.length) return c.json({ error: 'table is read-only' }, 400);
+
+  const db = c.env.DB;
+  const table = c.req.param('table');
+  const id = c.req.param('id');
+  const { where, params } = rowWhere(c, meta, { withOwnerKey: true });
+  const exist = await db
+    .prepare(`SELECT * FROM ${table} WHERE ${where} AND ${meta.key} = ?`)
+    .bind(...params, id)
+    .first();
+  if (!exist) return c.json({ error: 'not found in your scope' }, 404);
+
+  await db.prepare(`DELETE FROM ${table} WHERE ${where} AND ${meta.key} = ?`).bind(...params, id).run();
+  return c.json({ ok: true, id });
+});
+
 export { adminRoute };
