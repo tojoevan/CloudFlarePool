@@ -3,7 +3,7 @@
 //
 // Runs in Node.js (the gateway). Uses node:crypto — do NOT import this file
 // from the Workers-runtime data lake.
-import { createPrivateKey, sign as signRaw } from 'node:crypto';
+import { createHmac, createHash, createPrivateKey, sign as signRaw } from 'node:crypto';
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 
@@ -32,6 +32,67 @@ export function signT1({ openid, tenantId, appId, ttl = 2592000, privateKeyPem, 
       tid: tenantId,
       typ: 'wx',
       scp: ['user:read', 'user:write'],
+      iss: 'gateway',
+      aud: 'data.kapibala.icu',
+      exp: Math.floor(Date.now() / 1000) + ttl,
+    },
+    privateKeyPem,
+    { kid }
+  );
+}
+
+// T2: account (native / OAuth) login. `sub` is the user_id resolved by the
+// lake's internal /internal/account/verify endpoint.
+export function signT2({ sub, appId, ttl = 2592000, privateKeyPem, kid = 'gw1' }) {
+  return signJwt(
+    {
+      sub,
+      aid: appId,
+      typ: 'account',
+      scp: ['user:read', 'user:write'],
+      iss: 'gateway',
+      aud: 'data.kapibala.icu',
+      exp: Math.floor(Date.now() / 1000) + ttl,
+    },
+    privateKeyPem,
+    { kid }
+  );
+}
+
+// T3 service tokens are symmetric HMAC-SHA256 (see the lake's
+// verifyServiceToken). The HMAC key is SHA-256(raw_secret) — identical to what
+// the lake stores as `secret_hash` — so signing and verifying stay in sync.
+export function signServiceToken({ serviceId, rawSecret, appId, tenantId, scope = ['data:read', 'data:write'], ttl = 31536000, kid }) {
+  const header = { alg: 'HS256', typ: 'service', kid: kid || `${serviceId}.v1` };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    sub: serviceId,
+    aid: appId || null,
+    tid: tenantId || null,
+    typ: 'service',
+    scp: scope,
+    iss: 'gateway',
+    aud: 'data.kapibala.icu',
+    iat: now,
+    exp: now + ttl,
+  };
+  const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
+  // key = SHA-256(raw_secret), matching the lake's stored secret_hash.
+  const keyBuf = createHash('sha256').update(rawSecret).digest();
+  const sig = createHmac('sha256', keyBuf).update(signingInput).digest('base64url');
+  return `${signingInput}.${sig}`;
+}
+
+// T4: admin login. `role` is platform | app | tenant; app_id / tenant_id are
+// bound only when the role permits (platform has neither).
+export function signT4({ sub, role, appId, tenantId, ttl = 2592000, privateKeyPem, kid = 'gw1' }) {
+  return signJwt(
+    {
+      sub,
+      aid: appId || null,
+      tid: tenantId || null,
+      typ: 'admin',
+      scp: [`admin:${role}`],
       iss: 'gateway',
       aud: 'data.kapibala.icu',
       exp: Math.floor(Date.now() / 1000) + ttl,

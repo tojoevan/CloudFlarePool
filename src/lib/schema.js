@@ -87,6 +87,60 @@ export const CREATE_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_archive_owner ON archive_items(tenant_id, owner_openid)`,
   `CREATE INDEX IF NOT EXISTS idx_archive_shared ON archive_items(tenant_id, shared)`,
+
+  // ===== Phase 2 (B2) account & service-key tables =====
+  // NOTE (implementation correction vs 02-设计 §18.3): passwords and api_key
+  // secrets use PBKDF2 / SHA-256 — NOT bcrypt. Cloudflare Workers (WebCrypto)
+  // has no bcrypt, and bcrypt is also unavailable natively in Node's crypto.
+  // PBKDF2-SHA256 is supported on both runtimes with zero dependencies.
+  `CREATE TABLE IF NOT EXISTS users (
+    id           TEXT PRIMARY KEY,
+    app_id       TEXT,
+    tenant_id    TEXT,
+    email        TEXT UNIQUE,
+    pwd_hash     TEXT,                     -- PBKDF2-SHA256: "salt$iterations$hashHex"
+    provider     TEXT DEFAULT 'native',   -- native | oauth
+    status       TEXT DEFAULT 'active',    -- active | disabled
+    created_at   INTEGER
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS account_oauth (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT,
+    provider     TEXT,                     -- github | wechat-open
+    external_id  TEXT,
+    created_at   INTEGER
+  )`,
+
+  // T3 service keys (MCP / Skill / server-to-server). Symmetric HMAC-SHA256:
+  //   secret_hash = SHA-256(raw_secret) hex, used directly as the HMAC verify key.
+  // §18.3 described "bcrypt(raw)" but bcrypt is irreversible and cannot verify
+  // a signature — this is the deliberate correction.
+  `CREATE TABLE IF NOT EXISTS api_keys (
+    id            TEXT PRIMARY KEY,        -- service_id
+    app_id        TEXT,
+    tenant_id     TEXT,                    -- NULL when tenant_bound = 0
+    secret_hash   TEXT,                    -- SHA-256(raw_secret) hex (HMAC verify key)
+    scope         TEXT,                    -- JSON array, e.g. ["data:read","data:write"]
+    tenant_bound  INTEGER DEFAULT 0,      -- 1 => p.tid must equal tenant_id
+    status        TEXT DEFAULT 'active',  -- active | revoked
+    current_kid   TEXT,
+    prev_kid      TEXT,                   -- rotation grace period (7d)
+    prev_secret   TEXT,                   -- SHA-256(prev raw_secret); NULL after grace
+    created_at    INTEGER,
+    revoked_at    INTEGER
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS admin_accounts (
+    id           TEXT PRIMARY KEY,
+    app_id       TEXT,                     -- NULL = platform scope
+    tenant_id    TEXT,                     -- NULL = platform / app scope
+    email        TEXT UNIQUE,
+    pwd_hash     TEXT,                     -- PBKDF2-SHA256
+    role         TEXT DEFAULT 'tenant',    -- platform | app | tenant
+    status       TEXT DEFAULT 'active',
+    created_at   INTEGER
+  )`,
 ];
 
 // Run all CREATE statements. Called from the dev `/__setup` endpoint

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { loadDotEnv } from './lib/dotenv.js';
 import { signSession, verifySession, bearerFrom } from './lib/auth.js';
-import { signT1 } from './lib/jwt.js';
+import { signT1, signT2, signT4 } from './lib/jwt.js';
 
 loadDotEnv();
 
@@ -131,6 +131,56 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, jwt ? { token, jwt } : { token });
       } catch (e) {
         sendJson(res, 401, { error: 'login failed', detail: e.message });
+      }
+      return;
+    }
+
+    // 5) 账号登录（T2）：native 账号密码 -> 数据湖内部验证 -> 签 T2
+    if (req.method === 'POST' && path === '/api/account/login') {
+      const { email, password } = await readJson(req);
+      if (!email || !password) { sendJson(res, 400, { error: 'email and password required' }); return; }
+      try {
+        const r = await fetch(`${CFG.dataLakeBase}/internal/account/verify`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-sync-key': CFG.internalKey },
+          body: JSON.stringify({ email, password }),
+        });
+        const j = await r.json();
+        if (r.status !== 200) { sendJson(res, r.status === 401 ? 401 : 500, { error: j.error || 'verify failed' }); return; }
+        const jwt = CFG.jwtPrivateKey
+          ? signT2({ sub: j.user_id, appId: j.app_id, privateKeyPem: CFG.jwtPrivateKey })
+          : null;
+        sendJson(res, 200, jwt ? { user_id: j.user_id, token: jwt } : { user_id: j.user_id });
+      } catch {
+        sendJson(res, 502, { error: 'data lake unreachable' });
+      }
+      return;
+    }
+
+    // 5b) OAuth 登录（T2）：MVP 留口，native 先行
+    if (req.method === 'POST' && path === '/api/account/oauth') {
+      sendJson(res, 501, { error: 'oauth login not yet enabled', hint: 'use /api/account/login (native)' });
+      return;
+    }
+
+    // 6) admin 登录（T4）
+    if (req.method === 'POST' && path === '/api/admin/login') {
+      const { email, password } = await readJson(req);
+      if (!email || !password) { sendJson(res, 400, { error: 'email and password required' }); return; }
+      try {
+        const r = await fetch(`${CFG.dataLakeBase}/internal/admin/verify`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-sync-key': CFG.internalKey },
+          body: JSON.stringify({ email, password }),
+        });
+        const j = await r.json();
+        if (r.status !== 200) { sendJson(res, r.status === 401 ? 401 : 500, { error: j.error || 'verify failed' }); return; }
+        const jwt = CFG.jwtPrivateKey
+          ? signT4({ sub: j.id, role: j.role, appId: j.app_id, tenantId: j.tenant_id, privateKeyPem: CFG.jwtPrivateKey })
+          : null;
+        sendJson(res, 200, jwt ? { token: jwt, role: j.role } : { role: j.role });
+      } catch {
+        sendJson(res, 502, { error: 'data lake unreachable' });
       }
       return;
     }

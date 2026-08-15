@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { generateKeyPairSync } from 'node:crypto';
-import { signJwt } from '../gateway/lib/jwt.js';
+import { signJwt, signServiceToken } from '../gateway/lib/jwt.js';
 
 const KEY = 'test-internal-key';
 const BASE = 'https://data.kapibala.icu';
@@ -268,6 +268,105 @@ test('Phase1: generic collection CRUD + owner isolation', async () => {
   assert.equal(r.status, 403);
   r = await jres(await req('DELETE', '/t/jiashiben/c/notes/n1', { headers: { 'X-User-Id': 'u1' } }));
   assert.equal(r.status, 200);
+});
+
+// ===== Phase 2 (B2): T3 service keys (symmetric HMAC) =====
+test('B2: issue api_key, sign service token, reach data lake via HMAC', async () => {
+  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read', 'data:write'] } }));
+  assert.equal(issued.status, 200);
+  assert.ok(issued.body.raw_secret, 'raw_secret must be returned once');
+  assert.ok(issued.body.kid, 'kid returned');
+
+  const svc = signServiceToken({
+    serviceId: issued.body.id,
+    rawSecret: issued.body.raw_secret,
+    appId: 'jiashiben',
+    scope: ['data:read', 'data:write'],
+  });
+
+  // service token reaches the lake through the dualGuard service branch.
+  const r = await jres(
+    await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + svc, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'svc1', title: 'service task' }),
+    })
+  );
+  assert.equal(r.status, 200, 'service token must reach the lake');
+  await jres(await req('DELETE', '/t/jiashiben/todos/svc1', { headers: { 'X-User-Id': issued.body.id } }));
+});
+
+test('B2: tenant_bound key rejects wrong tenant, allows its own', async () => {
+  const issued = await jres(
+    await req('POST', '/v1/a/jiashiben/keys', { body: { tenant_bound: true, tenant_id: 'jiashiben', scope: ['data:read'] } })
+  );
+  assert.equal(issued.status, 200);
+  const svc = signServiceToken({
+    serviceId: issued.body.id,
+    rawSecret: issued.body.raw_secret,
+    appId: 'jiashiben',
+    tenantId: 'jiashiben',
+    scope: ['data:read'],
+  });
+
+  const bad = await mf.dispatchFetch(BASE + '/t/other-tenant/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + svc },
+  });
+  assert.equal(bad.status, 403, 'tenant_bound key must reject other tenants');
+
+  const ok = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + svc },
+  });
+  assert.equal(ok.status, 200, 'tenant_bound key must allow its own tenant');
+});
+
+test('B2: revoked key is rejected', async () => {
+  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read'] } }));
+  const svc = signServiceToken({
+    serviceId: issued.body.id,
+    rawSecret: issued.body.raw_secret,
+    appId: 'jiashiben',
+    scope: ['data:read'],
+  });
+
+  const rev = await jres(await req('POST', `/v1/a/jiashiben/keys/${issued.body.id}/revoke`));
+  assert.equal(rev.status, 200);
+
+  const r = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + svc },
+  });
+  assert.equal(r.status, 401, 'revoked key must be rejected');
+});
+
+test('B2: rotation keeps old kid valid during grace period', async () => {
+  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read'] } }));
+  const oldKid = issued.body.kid;
+  const oldToken = signServiceToken({
+    serviceId: issued.body.id,
+    rawSecret: issued.body.raw_secret,
+    appId: 'jiashiben',
+    scope: ['data:read'],
+    kid: oldKid,
+  });
+
+  const rot = await jres(await req('POST', `/v1/a/jiashiben/keys/${issued.body.id}/rotate`));
+  assert.equal(rot.status, 200);
+  assert.notEqual(rot.body.kid, oldKid, 'new kid after rotation');
+
+  // old kid still valid (grace period)
+  const oldR = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + oldToken },
+  });
+  assert.equal(oldR.status, 200, 'old kid valid during grace period');
+});
+
+test('B2: /internal/account/verify rejects unknown user', async () => {
+  const r = await jres(await req('POST', '/internal/account/verify', { body: { email: 'nobody@example.com', password: 'x' } }));
+  assert.equal(r.status, 401, 'unknown user must be rejected');
 });
 
 // Miniflare keeps a workerd subprocess alive; dispose it so the process
