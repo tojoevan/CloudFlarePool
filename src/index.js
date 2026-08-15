@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { healthRoute } from './routes/health.js';
 import { tenantsRoute } from './routes/tenants.js';
+import { appsRoute } from './routes/apps.js';
 import { dataRoute } from './routes/data.js';
 import { migrate } from './lib/schema.js';
 import { dualGuard } from './lib/auth.js';
@@ -41,6 +42,7 @@ app.post('/__setup', async (c) => {
 
 // --- Protected routes ------------------------------------------------------
 app.route('/tenants', tenantsRoute); // admin tenant registry
+app.route('/v1/a', appsRoute); // app-dimension management (Phase 1)
 app.route('/t', dataRoute); // /t/:tenant/* data API
 
 export default app;

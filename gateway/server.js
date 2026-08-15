@@ -18,6 +18,9 @@ const CFG = {
   port: Number(process.env.PORT || 3000),
   sessionSecret: process.env.SESSION_SECRET || 'change-me-session-secret',
   tenantId: process.env.TENANT_ID || 'weijiashi',
+  // Phase 1: the app this tenant belongs to. Defaults to the tenant id so the
+  // gateway keeps emitting legacy aid=tenantId tokens until explicitly set.
+  appId: process.env.APP_ID || process.env.TENANT_ID || 'weijiashi',
   // Ed25519 PEM for signing T1 JWTs. Stored single-line in .env with literal
   // "\n" escapes (the zero-dep dotenv loader splits on newlines), so we
   // unescape here. Empty = don't issue JWT (legacy X-Sync-Key proxy only).
@@ -123,7 +126,7 @@ const server = http.createServer(async (req, res) => {
         // use it yet — it keeps going through the X-Sync-Key proxy — but the
         // token is ready for direct-connect clients (Web/App) and future MCP.
         const jwt = CFG.jwtPrivateKey
-          ? signT1({ openid, tenantId: CFG.tenantId, ttl: CFG.sessionTtl, privateKeyPem: CFG.jwtPrivateKey })
+          ? signT1({ openid, tenantId: CFG.tenantId, appId: CFG.appId, ttl: CFG.sessionTtl, privateKeyPem: CFG.jwtPrivateKey })
           : null;
         sendJson(res, 200, jwt ? { token, jwt } : { token });
       } catch (e) {

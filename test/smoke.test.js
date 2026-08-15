@@ -183,6 +183,93 @@ test('B1: JWT with wrong tenant -> 403', async () => {
   assert.equal(r.status, 403);
 });
 
+// ===== Phase 1: app dimension (app_id + tenant_id) =====
+test('Phase1: app registry + app-scoped tenant CRUD', async () => {
+  let r = await jres(await req('POST', '/v1/a', { body: { app_id: 'demo', name: 'Demo App', owner: 'jiashiben' } }));
+  assert.equal(r.status, 200, 'create app');
+
+  r = await jres(await req('GET', '/v1/a/demo'));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.app_id, 'demo');
+  assert.equal(r.body.status, 'active');
+
+  // create a tenant bound to the app
+  r = await jres(await req('POST', '/v1/a/demo/tenants', { body: { tenant_id: 'demo-tenant-1', name: 'Demo Tenant' } }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.app_id, 'demo');
+
+  // list tenants of the app
+  r = await jres(await req('GET', '/v1/a/demo/tenants'));
+  assert.equal(r.status, 200);
+  assert.ok(r.body.some((t) => t.tenant_id === 'demo-tenant-1'), 'tenant should be listed under its app');
+});
+
+test('Phase1: JWT with wrong app (aid mismatch) -> 403', async () => {
+  // Ensure jiashiben resolves to app jiashiben deterministically.
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', app_id: 'jiashiben', name: '微家事' } }));
+  const jwt = signJwt(
+    { sub: 'x', aid: 'other-app', tid: 'jiashiben', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    PRIV_PEM
+  );
+  const r = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + jwt },
+  });
+  assert.equal(r.status, 403, 'app dimension mismatch must be rejected');
+});
+
+test('Phase1: legacy JWT without aid still passes (no regression)', async () => {
+  // A token emitted before Phase 1 carries no `aid`; it must NOT be rejected
+  // on the existing mini-program path.
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', app_id: 'jiashiben', name: '微家事' } }));
+  const jwt = signJwt(
+    { sub: 'u_legacy', tid: 'jiashiben', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    PRIV_PEM
+  );
+  const r = await jres(
+    await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + jwt, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'legacy1', title: 'legacy task' }),
+    })
+  );
+  assert.equal(r.status, 200, 'legacy token (no aid) must still reach the lake');
+  await jres(await req('DELETE', '/t/jiashiben/todos/legacy1', { headers: { 'X-User-Id': 'u_legacy' } }));
+});
+
+test('Phase1: generic collection CRUD + owner isolation', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', app_id: 'jiashiben', name: '微家事' } }));
+
+  // register a collection schema for the app
+  let r = await jres(await req('POST', '/v1/a/jiashiben/collections', { body: { collection: 'notes', schema_json: { fields: { text: 'string' } } } }));
+  assert.equal(r.status, 200);
+  r = await jres(await req('GET', '/v1/a/jiashiben/collections'));
+  assert.equal(r.status, 200);
+  assert.ok(r.body.some((c) => c.collection === 'notes'), 'collection schema should be registered');
+
+  // generic CRUD under /t/:tenant/c/:collection
+  r = await jres(await req('POST', '/t/jiashiben/c/notes', { headers: { 'X-User-Id': 'u1' }, body: { id: 'n1', doc: { text: 'hello' } } }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.app, 'jiashiben', 'app_id must be resolved from the tenant');
+
+  r = await jres(await req('GET', '/t/jiashiben/c/notes?owner=me', { headers: { 'X-User-Id': 'u1' } }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.length, 1);
+  assert.equal(r.body[0].doc.text, 'hello');
+
+  r = await jres(await req('PUT', '/t/jiashiben/c/notes/n1', { headers: { 'X-User-Id': 'u1' }, body: { doc: { text: 'world' } } }));
+  assert.equal(r.status, 200);
+
+  r = await jres(await req('GET', '/t/jiashiben/c/notes/n1', { headers: { 'X-User-Id': 'u1' } }));
+  assert.equal(r.body.doc.text, 'world');
+
+  // owner isolation
+  r = await jres(await req('DELETE', '/t/jiashiben/c/notes/n1', { headers: { 'X-User-Id': 'u2' } }));
+  assert.equal(r.status, 403);
+  r = await jres(await req('DELETE', '/t/jiashiben/c/notes/n1', { headers: { 'X-User-Id': 'u1' } }));
+  assert.equal(r.status, 200);
+});
+
 // Miniflare keeps a workerd subprocess alive; dispose it so the process
 // can exit. Without this the test hangs forever.
 test.after(async () => {

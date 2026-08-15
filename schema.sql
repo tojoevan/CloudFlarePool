@@ -5,10 +5,43 @@
 CREATE TABLE IF NOT EXISTS tenants (
   tenant_id  TEXT PRIMARY KEY,
   appid      TEXT UNIQUE,
+  app_id     TEXT DEFAULT 'jiashiben',
   name       TEXT,
   plan       TEXT DEFAULT 'free',
   quota      INTEGER DEFAULT 10000,
   created_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS apps (
+  app_id       TEXT PRIMARY KEY,
+  name         TEXT,
+  owner        TEXT,
+  auth_methods TEXT DEFAULT 'wechat',
+  plan         TEXT DEFAULT 'free',
+  quota        INTEGER DEFAULT 10000,
+  status       TEXT DEFAULT 'active',
+  created_at   INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS collections (
+  id           TEXT,
+  app_id       TEXT,
+  tenant_id    TEXT,
+  collection   TEXT,
+  owner_openid TEXT,
+  doc          TEXT,
+  updated_at   INTEGER,
+  PRIMARY KEY (app_id, tenant_id, collection, id)
+);
+CREATE INDEX IF NOT EXISTS idx_collections_owner ON collections(app_id, tenant_id, owner_openid);
+CREATE INDEX IF NOT EXISTS idx_collections_lookup ON collections(app_id, tenant_id, collection);
+
+CREATE TABLE IF NOT EXISTS collections_meta (
+  app_id      TEXT,
+  collection  TEXT,
+  schema_json TEXT,
+  created_at  INTEGER,
+  PRIMARY KEY (app_id, collection)
 );
 
 CREATE TABLE IF NOT EXISTS todos (

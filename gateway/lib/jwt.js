@@ -21,11 +21,14 @@ export function signJwt(payload, privateKeyPem, { kid = 'gw1', alg = 'EdDSA' } =
 }
 
 // Convenience: build a T1 (WeChat user) token for the mini-program's owner.
-export function signT1({ openid, tenantId, ttl = 2592000, privateKeyPem, kid = 'gw1' }) {
+// `appId` is the app this tenant belongs to (Phase 1 two-dimensional model).
+// It defaults to `tenantId` so gateways that haven't been upgraded keep
+// emitting the legacy aid=tenantId token unchanged.
+export function signT1({ openid, tenantId, appId, ttl = 2592000, privateKeyPem, kid = 'gw1' }) {
   return signJwt(
     {
       sub: openid,
-      aid: tenantId,
+      aid: appId || tenantId,
       tid: tenantId,
       typ: 'wx',
       scp: ['user:read', 'user:write'],

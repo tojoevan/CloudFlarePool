@@ -13,6 +13,8 @@
 // `/t/*` routes (which read `c.req.header('X-User-Id')`) keep working without
 // any change.
 
+import { DEFAULT_APP_ID } from './schema.js';
+
 const DEFAULT_AUD = 'data.kapibala.icu';
 const DEFAULT_ISS = 'gateway';
 
@@ -81,6 +83,24 @@ function extractTenant(c) {
   return m ? m[1] : null;
 }
 
+// Resolve the app_id that owns a tenant. Falls back to DEFAULT_APP_ID when the
+// tenant has no explicit app_id (legacy rows) or the DB is unreachable, so the
+// two-dimensional isolation never hard-fails on existing data.
+export async function resolveApp(c, tenant) {
+  const db = c.env && c.env.DB;
+  if (!db || !tenant) return DEFAULT_APP_ID;
+  try {
+    const row = await db
+      .prepare('SELECT app_id FROM tenants WHERE tenant_id = ?')
+      .bind(tenant)
+      .first();
+    const aid = row && row.app_id;
+    return aid && aid !== '' ? aid : DEFAULT_APP_ID;
+  } catch {
+    return DEFAULT_APP_ID;
+  }
+}
+
 // Returns a Response (rejection) or null (pass). On pass, the verified
 // subject is injected as `x-user-id` for downstream routes.
 export async function dualGuard(c, env) {
@@ -94,10 +114,22 @@ export async function dualGuard(c, env) {
       return c.json({ error: `unauthorized: ${e.message}` }, 401);
     }
     // Tenant isolation: a JWT scoped to a tenant must match the URL tenant.
-    // (app/scope enforcement lands with the app-dimension sub-phase.)
     const tenant = extractTenant(c);
     if (tenant && p.tid && p.tid !== tenant) {
       return c.json({ error: 'forbidden: tenant mismatch' }, 403);
+    }
+    // App-dimension isolation (Phase 1): enforce only when the token explicitly
+    // carries an `aid` that does NOT match the tenant's app. Legacy tokens
+    // emitted before this change carry no `aid`, so the published mini-program
+    // (which reaches the lake only via the gateway's X-Sync-Key proxy) is
+    // completely unaffected. When present we surface the resolved app_id for
+    // downstream routes.
+    if (tenant && p.aid) {
+      const aid = await resolveApp(c, tenant);
+      if (p.aid !== aid) {
+        return c.json({ error: 'forbidden: app mismatch' }, 403);
+      }
+      c.set('appId', aid);
     }
     // Surface the verified subject via Hono context state so downstream /t/*
     // routes can read it. (Mutating incoming request headers is disallowed

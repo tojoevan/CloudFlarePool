@@ -1,15 +1,52 @@
 // Multi-tenant data lake schema (D1 / SQLite).
-// Single database, logical isolation via `tenant_id` on every row.
+// Single database, logical isolation via `app_id` + `tenant_id` on every row.
+// Abstraction level: platform core (app-agnostic) -> app -> tenant -> user.
 // This module is also used by the dev `/__setup` endpoint and `schema.sql`.
+
+// The first app. Used as the default when an existing tenant has no explicit app_id.
+export const DEFAULT_APP_ID = 'jiashiben';
 
 export const CREATE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS tenants (
     tenant_id  TEXT PRIMARY KEY,          -- e.g. "weijiashi"
     appid      TEXT UNIQUE,              -- WeChat AppID; gateway maps AppID -> tenant
+    app_id     TEXT DEFAULT 'jiashiben', -- app this tenant belongs to (1 tenant = 1 app)
     name       TEXT,
     plan       TEXT DEFAULT 'free',      -- free | pro | ... (paid resource sharing later)
     quota      INTEGER DEFAULT 10000,    -- per-tenant row/storage quota hint
     created_at INTEGER
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS apps (
+    app_id       TEXT PRIMARY KEY,        -- e.g. "jiashiben"
+    name         TEXT,
+    owner        TEXT,                    -- owning tenant_id or account
+    auth_methods TEXT DEFAULT 'wechat',   -- comma-separated: wechat,password,oauth
+    plan         TEXT DEFAULT 'free',
+    quota        INTEGER DEFAULT 10000,
+    status       TEXT DEFAULT 'active',   -- active | disabled
+    created_at   INTEGER
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS collections (
+    id           TEXT,
+    app_id       TEXT,                    -- app the collection belongs to
+    tenant_id    TEXT,
+    collection   TEXT,                    -- logical collection name within the app
+    owner_openid TEXT,                    -- end user identity (from gateway X-User-Id)
+    doc          TEXT,                    -- JSON blob
+    updated_at   INTEGER,
+    PRIMARY KEY (app_id, tenant_id, collection, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_collections_owner ON collections(app_id, tenant_id, owner_openid)`,
+  `CREATE INDEX IF NOT EXISTS idx_collections_lookup ON collections(app_id, tenant_id, collection)`,
+
+  `CREATE TABLE IF NOT EXISTS collections_meta (
+    app_id      TEXT,
+    collection  TEXT,
+    schema_json TEXT,                     -- declared schema for a typed module
+    created_at  INTEGER,
+    PRIMARY KEY (app_id, collection)
   )`,
 
   `CREATE TABLE IF NOT EXISTS todos (
@@ -58,4 +95,24 @@ export async function migrate(db) {
   for (const sql of CREATE_STATEMENTS) {
     await db.prepare(sql).run();
   }
+  // Existing remote `tenants` tables predate the app_id column (the first app was
+  // hard-wired as "jiashiben"). Add the column idempotently and backfill NULLs so
+  // the two-dimensional (app_id + tenant_id) isolation works on live data.
+  await ensureTenantAppId(db);
+}
+
+// Idempotent: add `app_id` to an already-existing `tenants` table if missing,
+// then backfill any row that has no explicit app_id with DEFAULT_APP_ID.
+async function ensureTenantAppId(db) {
+  const cols = await db.prepare('PRAGMA table_info(tenants)').all();
+  const hasAppId = (cols.results || []).some((c) => c.name === 'app_id');
+  if (!hasAppId) {
+    await db
+      .prepare("ALTER TABLE tenants ADD COLUMN app_id TEXT DEFAULT 'jiashiben'")
+      .run();
+  }
+  await db
+    .prepare("UPDATE tenants SET app_id = ? WHERE app_id IS NULL OR app_id = ''")
+    .bind(DEFAULT_APP_ID)
+    .run();
 }

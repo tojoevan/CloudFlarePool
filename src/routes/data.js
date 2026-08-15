@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { resolveApp } from '../lib/auth.js';
 
 // Multi-tenant data API. Mounted at `/t` so paths look like:
 //   /t/:tenant/todos
@@ -6,6 +7,7 @@ import { Hono } from 'hono';
 //   /t/:tenant/archive[/:id]
 //   /t/:tenant/family/shared
 //   /t/:tenant/img[/:key]
+//   /t/:tenant/c/:collection[/:id]   (generic collections, Phase 1, additive)
 //
 // Auth model:
 //   - X-Sync-Key must be valid (global guard) — the data lake trusts the
@@ -366,6 +368,125 @@ dataRoute.get('/:tenant/img/:key', async (c) => {
       'cache-control': 'public, max-age=31536000, immutable',
     },
   });
+});
+
+// ---------------------------------------------------------------------------
+// GENERIC COLLECTIONS (Phase 1, additive — for future apps / typed modules)
+//   /t/:tenant/c/:collection
+//   /t/:tenant/c/:collection/:id
+// Storage is keyed by (app_id, tenant_id, collection, id). The app_id is
+// resolved from the tenant (resolveApp), so callers never pass it explicitly.
+// Micro 家事's existing todos/tasks/archive routes above are completely
+// untouched — this is a parallel, additive capability.
+// ---------------------------------------------------------------------------
+dataRoute.post('/:tenant/c/:collection', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const collection = c.req.param('collection');
+  const aid = await resolveApp(c, tenant);
+  const b = await c.req.json().catch(() => ({}));
+  const id = b.id || crypto.randomUUID();
+  const ow = b.owner_openid || ownerOf(c);
+  await c.env.DB.prepare(
+    `INSERT INTO collections (id, app_id, tenant_id, collection, owner_openid, doc, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(id, aid, tenant, collection, ow, JSON.stringify(b.doc || {}), now())
+    .run();
+  return c.json({ ok: true, id, app: aid, owner: ow });
+});
+
+dataRoute.get('/:tenant/c/:collection', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const collection = c.req.param('collection');
+  const aid = await resolveApp(c, tenant);
+  const ownerQ = c.req.query('owner') || 'me';
+  const ow = ownerOf(c);
+  let where = 'app_id = ? AND tenant_id = ? AND collection = ?';
+  const p = [aid, tenant, collection];
+  if (ownerQ === 'me') {
+    where += ' AND owner_openid = ?';
+    p.push(ow);
+  } else if (ownerQ !== 'all') {
+    where += ' AND owner_openid = ?';
+    p.push(ownerQ);
+  }
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, app_id, tenant_id, collection, owner_openid, doc, updated_at
+     FROM collections WHERE ${where} ORDER BY updated_at DESC`
+  )
+    .bind(...p)
+    .all();
+  const parsed = (results || []).map((r) => {
+    if (r.doc) { try { r.doc = JSON.parse(r.doc); } catch { /* keep as-is */ } }
+    return r;
+  });
+  return c.json(parsed);
+});
+
+dataRoute.get('/:tenant/c/:collection/:id', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const collection = c.req.param('collection');
+  const aid = await resolveApp(c, tenant);
+  const row = await c.env.DB.prepare(
+    `SELECT id, app_id, tenant_id, collection, owner_openid, doc, updated_at
+     FROM collections WHERE app_id = ? AND tenant_id = ? AND collection = ? AND id = ?`
+  )
+    .bind(aid, tenant, collection, c.req.param('id'))
+    .first();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  if (row.doc) { try { row.doc = JSON.parse(row.doc); } catch { /* keep as-is */ } }
+  return c.json(row);
+});
+
+dataRoute.put('/:tenant/c/:collection/:id', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const collection = c.req.param('collection');
+  const id = c.req.param('id');
+  const aid = await resolveApp(c, tenant);
+  const exist = await c.env.DB.prepare(
+    `SELECT * FROM collections WHERE app_id = ? AND tenant_id = ? AND collection = ? AND id = ?`
+  )
+    .bind(aid, tenant, collection, id)
+    .first();
+  if (!exist) return c.json({ error: 'not found' }, 404);
+  if (exist.owner_openid !== ownerOf(c)) return c.json({ error: 'forbidden' }, 403);
+  const b = await c.req.json().catch(() => ({}));
+  await c.env.DB.prepare(
+    `UPDATE collections SET doc = ?, updated_at = ?
+     WHERE app_id = ? AND tenant_id = ? AND collection = ? AND id = ?`
+  )
+    .bind(
+      b.doc !== undefined ? JSON.stringify(b.doc) : exist.doc,
+      now(),
+      aid, tenant, collection, id
+    )
+    .run();
+  return c.json({ ok: true });
+});
+
+dataRoute.delete('/:tenant/c/:collection/:id', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const collection = c.req.param('collection');
+  const id = c.req.param('id');
+  const aid = await resolveApp(c, tenant);
+  const exist = await c.env.DB.prepare(
+    `SELECT * FROM collections WHERE app_id = ? AND tenant_id = ? AND collection = ? AND id = ?`
+  )
+    .bind(aid, tenant, collection, id)
+    .first();
+  if (!exist) return c.json({ error: 'not found' }, 404);
+  if (exist.owner_openid !== ownerOf(c)) return c.json({ error: 'forbidden' }, 403);
+  await c.env.DB.prepare(
+    `DELETE FROM collections WHERE app_id = ? AND tenant_id = ? AND collection = ? AND id = ?`
+  )
+    .bind(aid, tenant, collection, id)
+    .run();
+  return c.json({ ok: true });
 });
 
 export { dataRoute };
