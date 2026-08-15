@@ -82,3 +82,17 @@ CREATE TABLE IF NOT EXISTS archive_items (
 );
 CREATE INDEX IF NOT EXISTS idx_archive_owner ON archive_items(tenant_id, owner_openid);
 CREATE INDEX IF NOT EXISTS idx_archive_shared ON archive_items(tenant_id, shared);
+
+-- ===== Phase 3 (B3): admin audit log =====
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id         TEXT PRIMARY KEY,
+  app_id     TEXT,
+  tenant_id  TEXT,
+  admin_id   TEXT,
+  action     TEXT,
+  target     TEXT,
+  detail     TEXT,
+  ip         TEXT,
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant ON admin_audit_log(tenant_id, created_at);

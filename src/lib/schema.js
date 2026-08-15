@@ -141,6 +141,22 @@ export const CREATE_STATEMENTS = [
     status       TEXT DEFAULT 'active',
     created_at   INTEGER
   )`,
+
+  // ===== Phase 3 (B3): admin audit log =====
+  // 管理员（T4）变更操作的留痕：改密 / 启停用户 / 签发吊销密钥 / 编辑删除数据。
+  // tenant_id = 操作归属租户（platform 角色无租户时为 NULL）；detail 为 JSON。
+  `CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id         TEXT PRIMARY KEY,
+    app_id     TEXT,
+    tenant_id  TEXT,
+    admin_id   TEXT,                       -- T4 token sub (admin_accounts.id)
+    action     TEXT,                       -- password.change | user.status | key.issue | key.revoke | row.update | row.delete
+    target     TEXT,                       -- 操作对象：user:<id> / key:<id> / <table>:<id>
+    detail     TEXT,                       -- JSON（scope / status / 变更字段等）
+    ip         TEXT,
+    created_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_tenant ON admin_audit_log(tenant_id, created_at)`,
 ];
 
 // Run all CREATE statements. Called from the dev `/__setup` endpoint

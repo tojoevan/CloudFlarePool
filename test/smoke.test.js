@@ -691,6 +691,52 @@ test('Phase3: T4 data browser lists, searches, edits, deletes own-tenant rows', 
   assert.equal(r.status, 404, 'deleted row must 404 on second delete');
 });
 
+// ===== Phase 3 (B3): T4 admin audit log =====
+test('Phase3: T4 audit log records mutating actions + role-scoped read', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  const db = await mf.getD1Database('DB');
+  await db
+    .prepare('INSERT INTO users (id, tenant_id, email, status, provider, created_at) VALUES (?,?,?,?,?,?)')
+    .bind('u_aud_1', 'weijiashi', 'aud@weijiashi.app', 'active', 'native', Date.now())
+    .run();
+
+  const t4 = signT4({ sub: 'adm_aud', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const hdr = { Authorization: 'Bearer ' + t4, 'content-type': 'application/json' };
+
+  // 1) disable a user -> audited
+  let r = await jres(await mf.dispatchFetch(BASE + '/admin/users/u_aud_1/status', { method: 'POST', headers: hdr, body: JSON.stringify({ status: 'disabled' }) }));
+  assert.equal(r.status, 200);
+
+  // 2) issue a key -> audited
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/keys', { method: 'POST', headers: hdr, body: JSON.stringify({ scope: ['data:read'] }) }));
+  assert.equal(r.status, 200);
+  const keyId = r.body.id;
+
+  // 3) audit log contains both entries, tenant-scoped
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/audit?limit=20', { method: 'GET', headers: { Authorization: 'Bearer ' + t4 } }));
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body.rows), 'audit rows array');
+  assert.ok(r.body.rows.some((x) => x.action === 'user.status' && x.target === 'user:u_aud_1'), 'user.status entry');
+  assert.ok(r.body.rows.some((x) => x.action === 'key.issue' && x.target === 'key:' + keyId), 'key.issue entry');
+  assert.ok(r.body.rows.every((x) => x.tenant_id === 'weijiashi'), 'tenant-scoped rows');
+
+  // 4) revoke key -> audited; filter by action works
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/keys/' + keyId + '/revoke', { method: 'POST', headers: hdr }));
+  assert.equal(r.status, 200);
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/audit?action=key.revoke', { method: 'GET', headers: { Authorization: 'Bearer ' + t4 } }));
+  assert.ok(r.body.rows.some((x) => x.target === 'key:' + keyId), 'key.revoke entry with action filter');
+
+  // 5) T2 (account) cannot read the audit log
+  const t2 = signJwt(
+    { sub: 'u2', aid: 'jiashiben', tid: 'weijiashi', typ: 'account', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    PRIV_PEM
+  );
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/audit', { method: 'GET', headers: { Authorization: 'Bearer ' + t2 } }));
+  assert.equal(r.status, 403, 'non-admin must not read audit log');
+
+  await db.prepare('DELETE FROM users WHERE id=?').bind('u_aud_1').run();
+});
+
 // Miniflare keeps a workerd subprocess alive; dispose it so the process
 // can exit. Without this the test hangs forever.
 test.after(async () => {

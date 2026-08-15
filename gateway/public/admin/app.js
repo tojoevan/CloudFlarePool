@@ -399,6 +399,65 @@ async function delRow(id) {
   }
 }
 
+// ===== 审计日志 =====
+const AUDIT_LABELS = {
+  'password.change': '改密',
+  'user.status': '用户启停',
+  'key.issue': '签发密钥',
+  'key.revoke': '吊销密钥',
+  'row.update': '编辑数据',
+  'row.delete': '删除数据',
+};
+const auditState = { action: '', limit: 20, offset: 0, total: 0 };
+
+async function loadAudit() {
+  const body = $('#audit-body');
+  body.innerHTML = '<tr><td colspan="6" class="empty">加载中…</td></tr>';
+  try {
+    const params = new URLSearchParams({ limit: auditState.limit, offset: auditState.offset });
+    if (auditState.action) params.set('action', auditState.action);
+    const d = await api(`/api/t4data/audit?${params.toString()}`);
+    auditState.total = d.total;
+    if (!d.rows.length) {
+      body.innerHTML = '<tr><td colspan="6" class="empty">暂无审计记录</td></tr>';
+    } else {
+      body.innerHTML = '';
+      for (const r of d.rows) {
+        const tr = document.createElement('tr');
+        let detail = '-';
+        if (r.detail !== null && r.detail !== undefined) {
+          detail = typeof r.detail === 'object' ? JSON.stringify(r.detail) : String(r.detail);
+          if (detail.length > 60) detail = detail.slice(0, 60) + '…';
+        }
+        tr.innerHTML =
+          `<td>${fmtTime(r.created_at)}</td>` +
+          `<td>${esc(r.admin_id || '-')}</td>` +
+          `<td><span class="badge ok">${esc(AUDIT_LABELS[r.action] || r.action)}</span></td>` +
+          `<td><code>${esc(r.target || '-')}</code></td>` +
+          `<td>${esc(detail)}</td>` +
+          `<td>${esc(r.ip || '-')}</td>`;
+        body.appendChild(tr);
+      }
+    }
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">${esc(err.message)}</td></tr>`;
+  }
+  renderAuditPager();
+  $('#audit-meta').textContent = `共 ${auditState.total} 条 · 第 ${Math.floor(auditState.offset / auditState.limit) + 1} 页`;
+}
+
+function renderAuditPager() {
+  const pages = Math.max(1, Math.ceil(auditState.total / auditState.limit));
+  const cur = Math.floor(auditState.offset / auditState.limit) + 1;
+  $('#audit-pager').innerHTML =
+    `<button class="ghost sm" id="apg-prev" ${cur <= 1 ? 'disabled' : ''}>‹ 上一页</button>` +
+    `<span class="pg-info">第 ${cur} / ${pages} 页</span>` +
+    `<button class="ghost sm" id="apg-next" ${cur >= pages ? 'disabled' : ''}>下一页 ›</button>`;
+  const prev = $('#apg-prev'), next = $('#apg-next');
+  if (prev) prev.addEventListener('click', () => { auditState.offset = Math.max(0, auditState.offset - auditState.limit); loadAudit(); });
+  if (next) next.addEventListener('click', () => { auditState.offset += auditState.limit; loadAudit(); });
+}
+
 // ===== 安全：改密 =====
 async function changePassword(e) {
   e.preventDefault();
@@ -431,6 +490,7 @@ function switchTab(name) {
   if (name === 'data') { dataHead(); loadData(); }
   if (name === 'users') loadUsers();
   if (name === 'keys') { $('#key-secret').classList.add('hidden'); loadKeys(); }
+  if (name === 'audit') loadAudit();
 }
 
 function logout() {
@@ -462,6 +522,10 @@ $('#data-table').addEventListener('change', (e) => {
 $('#data-search').addEventListener('click', () => { dataState.q = $('#data-q').value.trim(); dataState.offset = 0; loadData(); });
 $('#data-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { dataState.q = $('#data-q').value.trim(); dataState.offset = 0; loadData(); } });
 $('#data-refresh').addEventListener('click', () => { dataState.offset = 0; loadData(); });
+
+// 审计日志事件
+$('#audit-action').addEventListener('change', (e) => { auditState.action = e.target.value; auditState.offset = 0; loadAudit(); });
+$('#audit-refresh').addEventListener('click', () => { auditState.offset = 0; loadAudit(); });
 
 // 启动：底部双版本（前端语义版本 + 后端 git HEAD）
 async function loadVersion() {

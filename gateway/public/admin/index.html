@@ -36,6 +36,7 @@
         <button class="tab" data-tab="users">用户账号</button>
         <button class="tab" data-tab="keys">服务密钥</button>
         <button class="tab" data-tab="security">安全</button>
+        <button class="tab" data-tab="audit">审计</button>
       </nav>
 
       <!-- 概览 -->
@@ -114,6 +115,33 @@
           <button type="submit" id="pw-btn">保存</button>
           <p id="pw-msg" class="err"></p>
         </form>
+      </div>
+
+      <!-- 审计日志 -->
+      <div class="panel hidden" id="panel-audit">
+        <div class="panel-head">
+          <h2>审计日志</h2>
+          <div class="toolbar">
+            <select id="audit-action">
+              <option value="">全部动作</option>
+              <option value="password.change">改密</option>
+              <option value="user.status">用户启停</option>
+              <option value="key.issue">签发密钥</option>
+              <option value="key.revoke">吊销密钥</option>
+              <option value="row.update">编辑数据</option>
+              <option value="row.delete">删除数据</option>
+            </select>
+            <button class="ghost sm" id="audit-refresh">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr><th>时间</th><th>管理员</th><th>动作</th><th>目标</th><th>详情</th><th>IP</th></tr></thead>
+            <tbody id="audit-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pager" id="audit-pager"></div>
+        <p class="foot" id="audit-meta"></p>
       </div>
     </section>
     <footer class="footer">

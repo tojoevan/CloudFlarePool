@@ -52,6 +52,32 @@ function requireAdmin(c) {
   return null;
 }
 
+// 管理员操作留痕（best-effort：审计失败不阻断主操作）。所有 T4 写操作在
+// 成功后调用，写入 admin_audit_log（tenant_id 取令牌归属租户，platform 为 NULL）。
+async function audit(c, action, target, detail) {
+  try {
+    const db = c.env.DB;
+    await db
+      .prepare(
+        'INSERT INTO admin_audit_log (id, app_id, tenant_id, admin_id, action, target, detail, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .bind(
+        crypto.randomUUID(),
+        c.get('userAid') || 'jiashiben',
+        c.get('userTid') || null,
+        c.get('userId') || null,
+        action,
+        target || null,
+        detail ? JSON.stringify(detail) : null,
+        c.req.header('cf-connecting-ip') || null,
+        Date.now()
+      )
+      .run();
+  } catch (_) {
+    /* best-effort */
+  }
+}
+
 // Read-only stats. Scope adapts to the admin role.
 adminRoute.get('/stats', async (c) => {
   const deny = requireAdmin(c);
@@ -152,6 +178,7 @@ adminRoute.post('/me/password', async (c) => {
     return c.json({ error: 'generated hash invalid' }, 500);
   }
   await db.prepare('UPDATE admin_accounts SET pwd_hash = ? WHERE id = ?').bind(newHash, adminId).run();
+  await audit(c, 'password.change', `admin:${adminId}`);
   return c.json({ ok: true });
 });
 
@@ -182,6 +209,7 @@ adminRoute.post('/users/:id/status', async (c) => {
   const row = await db.prepare('SELECT id, tenant_id FROM users WHERE id = ?').bind(id).first();
   if (!row || row.tenant_id !== tid) return c.json({ error: 'user not found in your tenant' }, 404);
   await db.prepare('UPDATE users SET status = ? WHERE id = ? AND tenant_id = ?').bind(status, id, tid).run();
+  await audit(c, 'user.status', `user:${id}`, { status });
   return c.json({ ok: true, id, status });
 });
 
@@ -230,6 +258,7 @@ adminRoute.post('/keys', async (c) => {
     .prepare('INSERT INTO api_keys (id, app_id, tenant_id, secret_hash, scope, tenant_bound, status, current_kid, prev_kid, prev_secret, created_at) VALUES (?, ?, ?, ?, ?, 1, \'active\', ?, NULL, NULL, ?)')
     .bind(id, appId, tid, secretHash, JSON.stringify(scope), kid, Date.now())
     .run();
+  await audit(c, 'key.issue', `key:${id}`, { scope });
   return c.json({ id, raw_secret: rawSecret, kid, scope, tenant_bound: true, tenant_id: tid });
 });
 
@@ -247,6 +276,7 @@ adminRoute.post('/keys/:id/revoke', async (c) => {
     .prepare("UPDATE api_keys SET status = 'revoked', revoked_at = ? WHERE id = ? AND tenant_id = ?")
     .bind(Date.now(), id, tid)
     .run();
+  await audit(c, 'key.revoke', `key:${id}`);
   return c.json({ ok: true, id, status: 'revoked' });
 });
 
@@ -396,8 +426,10 @@ adminRoute.put('/rows/:table/:id', async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const sets = [];
   const vp = [];
+  const changed = [];
   for (const col of meta.editable) {
     if (b[col] === undefined) continue;
+    changed.push(col);
     sets.push(`${col} = ?`);
     if (meta.jsonCols.includes(col)) {
       vp.push(typeof b[col] === 'string' ? b[col] : JSON.stringify(b[col]));
@@ -416,6 +448,7 @@ adminRoute.put('/rows/:table/:id', async (c) => {
     .prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE ${where} AND ${meta.key} = ?`)
     .bind(...vp)
     .run();
+  await audit(c, 'row.update', `${table}:${id}`, { fields: changed });
   return c.json({ ok: true, id });
 });
 
@@ -438,7 +471,50 @@ adminRoute.delete('/rows/:table/:id', async (c) => {
   if (!exist) return c.json({ error: 'not found in your scope' }, 404);
 
   await db.prepare(`DELETE FROM ${table} WHERE ${where} AND ${meta.key} = ?`).bind(...params, id).run();
+  await audit(c, 'row.delete', `${table}:${id}`);
   return c.json({ ok: true, id });
+});
+
+// 审计日志查询（管理员操作留痕）。tenant 角色只看本租户；platform 角色可
+// 可选 ?tid= 过滤；支持 ?action= 按动作过滤。
+adminRoute.get('/audit', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const db = c.env.DB;
+  const role = c.get('userRole');
+  const ownTid = c.get('userTid');
+  const where = [];
+  const params = [];
+
+  if (role !== 'platform') {
+    where.push('tenant_id = ?');
+    params.push(ownTid || 'weijiashi');
+  } else {
+    const tid = c.req.query('tid');
+    if (tid) { where.push('tenant_id = ?'); params.push(tid); }
+  }
+  const action = c.req.query('action');
+  if (action) { where.push('action = ?'); params.push(action); }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10) || 20, 100);
+  const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0);
+  const whereSql = where.length ? where.join(' AND ') : '1=1';
+
+  const totalRow = await db
+    .prepare(`SELECT COUNT(*) AS n FROM admin_audit_log WHERE ${whereSql}`)
+    .bind(...params)
+    .first();
+  const { results } = await db
+    .prepare(
+      `SELECT id, tenant_id, admin_id, action, target, detail, ip, created_at
+       FROM admin_audit_log WHERE ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+    )
+    .bind(...params, limit, offset)
+    .all();
+
+  const rows = (results || []).map((r) => ({ ...r, detail: parseAdminJson(r.detail) }));
+  return c.json({ rows, total: totalRow?.n || 0, limit, offset });
 });
 
 export { adminRoute };
