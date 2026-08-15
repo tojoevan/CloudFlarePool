@@ -1,0 +1,87 @@
+# 平台化落地 · TODO 与跟踪文档
+
+> 配套：`docs/PLATFORM_API_AUTH_SPEC.md`（架构规范 v0.2）、`docs/JWT_KEY_SCHEME.md`（鉴权方案）
+> 用途：记录**已决议**、**待讨论**、**待实施**三类事项，随讨论推进持续更新。
+> 状态图例：`[ ]` 未开始 ｜ `[~]` 进行中 ｜ `[x]` 已完成 ｜ `[-]` 已搁置/阻塞
+
+---
+
+## 一、已决议（Architecture Decision Log）
+
+| # | 日期 | 决议 | 说明 |
+|---|---|---|---|
+| D1 | 2026-08-15 | 数据湖 = **app-agnostic 多应用平台底座** | 不是家事本专属后台；新应用靠"声明 schema"接入，不改数据湖代码 |
+| D2 | 2026-08-15 | 抽象层级 = **平台核心 → 应用(app) → 租户(tenant) → 用户(user)** | 见规范 §5 |
+| D3 | 2026-08-15 | 隔离模型 = **`app_id` + `tenant_id` 两级** | 单库共用、逻辑隔离；R2 前缀 `app_id/tenant_id/` |
+| D4 | 2026-08-15 | JWT 算法 = **EdDSA/Ed25519**；JWT 与 X-Sync-Key **物理分离** | 见 `JWT_KEY_SCHEME.md` |
+| D5 | 2026-08-15 | 核心通用度 = **(a) 类型化应用模块** | app 声明 collection schema，数据湖提供类型感知 CRUD + 查询 |
+| D6 | 2026-08-15 | 端点形态 | 客户端 URL 保持 `/v1/t/:tenant/...`，`app` 由 JWT `aid` + tenant 反查；平台/应用管理用 `/v1/a/:app/...` |
+| D7 | 2026-08-15 | 管理后台 = 第一等 Web 客户端 | UI 托管网关（境内、快、合规），走平台 API（admin scope） |
+| D8 | 2026-08-15 | JWT 公共 claims 含 `aid` | `sub` / `aid` / `tid` / `typ` / `scp` / `exp` / `iss` / `aud` |
+
+---
+
+## 二、待讨论（Open Questions）
+
+| # | 问题 | 现状 / 我的建议 | 阻塞项 |
+|---|---|---|---|
+| Q1 | **app 开通方式**：自助注册 vs 管理员创建？ | 建议初期 admin 创建（单一运营者），后期再开放自助 | 影响 `apps` 表与注册端点 |
+| Q2 | **app 内 tenant 开通**：创建家庭 / 邀请成员流程？ | 家事本沿用"创建家庭 + 邀请"；需明确跨端同一 tenant 的绑定 | 影响用户归属与家庭共享 |
+| Q3 | **小程序迁移策略**：继续走网关代理 vs 持 JWT 直连数据湖？ | 建议 (a) 永远走网关代理（网关代持 JWT），小程序前端基本不动 | 决定 Phase 1 是否改前端 |
+| Q4 | **管理后台首版范围**：只读概览 vs 直接读写？ | 建议 (a) 只读（租户/数据量/健康），先解"无可视化运维"燃眉之急 | 影响 admin 鉴权与审计强度 |
+| Q5 | **scope 粒度**：资源族 / 动作是否够用？ | 当前 `todo/task/archive/family/img/user/tenant` × `read/write/admin`；待首个 App 接入时复核 | — |
+| Q6 | **是否现在就做真多租户**（每家庭独立 tenant）？ | D2/D3 已定两级模型；家事本首版可先单 tenant 跑通多端，多租户随 app 通用化自然落地 | 与 Q2 相关 |
+| Q7 | **配额 / 计费模型**：免费额度内何时引入 plan？ | Cloudflare 免费额度充足；`apps`/`tenants` 表预留 `plan`/`quota` 字段，暂不启用计费 | — |
+| Q8 | **类型化模块的实现形态**：schema 存 D1 还是 D1 表 per collection？ | (a) 推荐：schema 元数据存 `apps` 表，数据仍按通用表 + `app_id`+`tenant_id` + collection 名分片 | 待 Phase 1 细化 |
+
+---
+
+## 三、实施阶段与任务清单
+
+### Phase 0 — 地基文档 `[x]`
+- [x] `PLATFORM_API_AUTH_SPEC.md`（v0.2，含 app 层）
+- [x] `JWT_KEY_SCHEME.md`（含 `aid`）
+- [x] `PLATFORM_TODO.md`（本文件）
+
+### Phase 1 — 数据湖双模鉴权 + app 维度 `[ ]`
+- [ ] 新增 `apps` 表（app_id / name / owner / 登录方式 / 配额 / status）
+- [ ] `tenants` 表加 `app_id` 列；历史数据回填 `jiashiben`
+- [ ] JWT 验证中间件：验 `Bearer`（EdDSA 验签 + exp + iss + aud）+ 保留 `X-Sync-Key` 内部通道
+- [ ] 两维隔离强制校验：`aid === resolveApp(tenant)` 且 `tid === :tenant`
+- [ ] 端点加 `/v1/a/:app/...` 平台 / 应用管理维度
+- [ ] **类型化应用模块**：`apps` 表声明 collection schema；数据湖提供通用 CRUD + 查询（替掉硬编码 todos/tasks/...）
+- [ ] 家事本作为首个 app 迁移（注册 `todo/task/archive_item/family_group/family_member` 模型 + 历史数据归属）
+
+### Phase 2 — 网关签发 JWT + 账号体系 `[ ]`
+- [ ] 网关配置 `TENANT_ID` → `APP_ID`；tenant 解析改为按请求（来自 JWT），非静态配置
+- [ ] 账号 / 密码 / OAuth 登录端点 → 签 T2（含 `aid`）
+- [ ] admin 登录端点 `POST /api/admin/login` → 签 T4
+- [ ] `api_keys` 表（T3 服务令牌）+ 轮转 / 吊销
+- [ ] 密钥注入：`wrangler secret put JWT_PUBLIC_KEYS`；网关 `.env` 写 `JWT_PRIVATE_KEY`
+
+### Phase 3 — 多端客户端 + 管理后台 `[ ]`
+- [ ] Web SPA 接入（T2）
+- [ ] App（原生）接入（T2）
+- [ ] MCP Server 骨架（T3，含工具↔scope 映射）
+- [ ] Skill（专家）复用 MCP（零额外后端）
+- [ ] 管理后台 UI：平台级（`/v1/apps`）+ 应用级（`/v1/a/:app/tenants`），首版建议只读（见 Q4）
+
+---
+
+## 四、代码现状 vs 计划（Gap）
+
+| 项 | 现状 | 目标 |
+|---|---|---|
+| 数据湖守卫 | 纯 `X-Sync-Key` | 双模（X-Sync-Key 内部 + Bearer JWT 客户端） |
+| 隔离 | 单 `tenant_id`（硬编码 `jiashiben`） | `app_id` + `tenant_id` 两级 |
+| 资源 | 硬编码 todos/tasks/archive/... | app 声明 collection，通用 CRUD |
+| 网关 | `TENANT_ID=jiashiben` 静态 | `APP_ID` + 按请求解析 tenant |
+| 登录 | 仅微信 code2session | + 账号/OAuth(T2) + admin(T4) + api_keys(T3) |
+| 可视化运维 | 无 | 管理后台（平台级 + 应用级） |
+
+---
+
+## 五、关联文档
+- `docs/PLATFORM_API_AUTH_SPEC.md` — 平台 API 与鉴权规范（架构主文档）
+- `docs/JWT_KEY_SCHEME.md` — JWT 算法与密钥分发方案
+- （待建）管理后台 UI 草图、MCP Server 设计、app schema 注册规范

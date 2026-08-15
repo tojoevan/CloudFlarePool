@@ -96,7 +96,8 @@ openssl ed25519 -pubout  -in jwt_private.pem -out jwt_public.pem
 {
   "iss": "gateway",        // 签发方
   "sub": "oXYZ...",        // 用户 openid / 服务 id
-  "tid": "jiashiben",      // tenant_id（一个家庭 = 一个 tenant）
+  "aid": "jiashiben",      // app_id（应用标识，多应用隔离）
+  "tid": "fam-123",        // tenant_id（一个家庭 = 一个 tenant，隶属于某 app）
   "scope": ["user:read", "user:write"], // 作用域
   "aud": "cloudflarepool", // 受众 = 数据湖
   "exp": 1756000000,
@@ -107,10 +108,10 @@ openssl ed25519 -pubout  -in jwt_private.pem -out jwt_public.pem
 
 各类型示例：
 
-- **T1 微信用户**：`iss=gateway, sub=<openid>, scope=[user:read, user:write]`
-- **T2 账号用户**（未来）：`iss=authsvc, sub=<account_id>, scope=[user:read, user:write]`
-- **T3 服务令牌（MCP/Skill）**：`iss=authsvc, sub=<service_id>, scope=[svc:read]`（只读子集）
-- **T4 管理**：`iss=gateway, sub=<admin_id>, scope=[admin:*]`
+- **T1 微信用户**：`iss=gateway, aid=jiashiben, sub=<openid>, scope=[user:read, user:write]`
+- **T2 账号用户**（未来）：`iss=authsvc, aid=jiashiben, sub=<account_id>, scope=[user:read, user:write]`
+- **T3 服务令牌（MCP/Skill）**：`iss=authsvc, aid=jiashiben, sub=<service_id>, scope=[svc:read]`（只读子集，可 `tenant_bound`）
+- **T4 管理**：`iss=gateway, aid=jiashiben, sub=<admin_id>, scope=[admin:*]`（平台级 admin 可不带 `aid`，跨 app）
 
 ---
 
@@ -121,8 +122,9 @@ openssl ed25519 -pubout  -in jwt_private.pem -out jwt_public.pem
 1. 取 `Authorization: Bearer <jwt>`，解析 header `kid`。
 2. 用 `JWT_PUBLIC_KEYS[kid]` 验签（Ed25519）。
 3. 校验 `exp` / `aud=cloudflarepool` / `iss` 白名单。
-4. **强制 `tid === :tenant`**（租户隔离在服务端校验，不只靠路径）。
-5. 按 `scope` 鉴权端点（`POST` 需 `*:write`；MCP 的 `svc:read` 拒写）。
+4. **强制 `aid === resolveApp(:tenant)`**（应用隔离：tenant 反查其 `app_id`，与令牌 `aid` 比对）。
+5. **强制 `tid === :tenant`**（租户隔离在服务端校验，不只靠路径）。
+6. 按 `scope` 鉴权端点（`POST` 需 `*:write`；MCP 的 `svc:read` 拒写）。
 6. 通过后把 `sub` / `tid` / `scope` 注入上下文；原有 `X-Sync-Key` 守卫保留给 `/api/data/*` 内部调用。
 
 ---
