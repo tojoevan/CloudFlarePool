@@ -1,0 +1,26 @@
+微家事 0.1.6 版本说明
+===================
+
+【微信小程序后台「版本说明」复制文本】
+（以下为面向终端用户的文案，直接整段复制到 mp.weixin.qq.com 上传页的"版本说明"框，不含内部技术内容）
+
+微家事 0.1.6 更新内容：
+· 设计规范升级：统一全局配色、字号、间距与圆角标准，界面更协调一致
+· 家庭页细节优化：修复成员头像底色与邀请卡片边框的显示样式
+· 状态展示完善：补充列表为空、内容加载中的统一提示样式
+· 体验稳定性：收敛一处潜在样式冲突，提升各页面渲染稳定性
+
+
+【发布前门禁清单】（内部，不进版本说明）
+- [ ] Gate0：确认无 known-broken 接口
+- [ ] lint --strict 全绿（family.wxss 两处修复后，regression 红项转绿）
+- [ ] 真机核心页目检通过（列表 / 编辑 / 家庭页）
+- [ ] 设计系统 6 条清理落地 + family.wxss 两处 bug 修复
+
+【本版技术变更】（内部，不进版本说明）
+1. 设计系统 Token 补全：app.wxss 新增 --space-1..6 + --page-pad、--text-xs..xxl
+2. 修复 family.wxss：.invite-banner 引用未定义 --brand-border；.avatar.family fallback #7BA7BC→#7A8471
+3. 收敛各页魔数（40rpx→--page-pad、28rpx→--text-base）
+4. 统一 .empty 全局空态类
+5. 补充 disabled / loading 组件状态
+6. lint + regression 复跑全绿（regression 现报红 2 项需在 0.1.6 修复后转绿）
