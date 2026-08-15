@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { loadDotEnv } from './lib/dotenv.js';
 import { signSession, verifySession, bearerFrom } from './lib/auth.js';
+import { signT1 } from './lib/jwt.js';
 
 loadDotEnv();
 
@@ -17,6 +18,10 @@ const CFG = {
   port: Number(process.env.PORT || 3000),
   sessionSecret: process.env.SESSION_SECRET || 'change-me-session-secret',
   tenantId: process.env.TENANT_ID || 'weijiashi',
+  // Ed25519 PEM for signing T1 JWTs. Stored single-line in .env with literal
+  // "\n" escapes (the zero-dep dotenv loader splits on newlines), so we
+  // unescape here. Empty = don't issue JWT (legacy X-Sync-Key proxy only).
+  jwtPrivateKey: (process.env.JWT_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
   sessionTtl: Number(process.env.SESSION_TTL || 2592000),
 };
 
@@ -114,7 +119,13 @@ const server = http.createServer(async (req, res) => {
       try {
         const { openid } = await wechatCode2Session(code);
         const token = signSession({ openid, tenantId: CFG.tenantId, ttl: CFG.sessionTtl }, CFG.sessionSecret);
-        sendJson(res, 200, { token });
+        // B1: additionally issue a T1 JWT (Ed25519). The mini-program does not
+        // use it yet — it keeps going through the X-Sync-Key proxy — but the
+        // token is ready for direct-connect clients (Web/App) and future MCP.
+        const jwt = CFG.jwtPrivateKey
+          ? signT1({ openid, tenantId: CFG.tenantId, ttl: CFG.sessionTtl, privateKeyPem: CFG.jwtPrivateKey })
+          : null;
+        sendJson(res, 200, jwt ? { token, jwt } : { token });
       } catch (e) {
         sendJson(res, 401, { error: 'login failed', detail: e.message });
       }

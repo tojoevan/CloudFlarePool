@@ -4,9 +4,16 @@ import { Miniflare } from 'miniflare';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { generateKeyPairSync } from 'node:crypto';
+import { signJwt } from '../gateway/lib/jwt.js';
 
 const KEY = 'test-internal-key';
 const BASE = 'https://data.kapibala.icu';
+
+// B1 test keys: gateway-signed JWT verified by the lake with the public key.
+const KP = generateKeyPairSync('ed25519');
+const PRIV_PEM = KP.privateKey.export({ type: 'pkcs8', format: 'pem' });
+const PUB_RAW_B64 = KP.publicKey.export({ format: 'jwk' }).x; // base64url raw 32 bytes
 
 const mf = new Miniflare({
   modules: true,
@@ -17,7 +24,7 @@ const mf = new Miniflare({
   r2Buckets: {
     BUCKET: 'cloudflarepool',
   },
-  bindings: { INTERNAL_KEY: KEY, ALLOW_SETUP: '1' },
+  bindings: { INTERNAL_KEY: KEY, ALLOW_SETUP: '1', JWT_PUBLIC_KEYS: JSON.stringify({ gw1: PUB_RAW_B64 }) },
 });
 
 function req(method, p, { body, headers = {}, raw = false } = {}) {
@@ -108,6 +115,72 @@ test('image upload + fetch (R2)', async () => {
 test('unknown tenant -> 404', async () => {
   const r = await jres(await req('GET', '/t/nope/todos', { headers: { 'X-User-Id': 'u1' } }));
   assert.equal(r.status, 404);
+});
+
+// ===== B1: dual-mode auth (Bearer JWT channel) =====
+test('B1: gateway-signed JWT reaches data lake; owner derived from JWT sub', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', appid: 'wx_x', name: '微家事' } }));
+  const jwt = signJwt(
+    {
+      sub: 'u_jwt',
+      aid: 'jiashiben',
+      tid: 'jiashiben',
+      typ: 'wx',
+      scp: ['user:read', 'user:write'],
+      iss: 'gateway',
+      aud: 'data.kapibala.icu',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    },
+    PRIV_PEM
+  );
+
+  // POST via Bearer (no X-Sync-Key). Body has no owner_openid, so route
+  // falls back to the injected x-user-id (= JWT sub).
+  const r = await jres(
+    await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + jwt, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'jt1', title: 'JWT 任务' }),
+    })
+  );
+  assert.equal(r.status, 200);
+
+  const got = await jres(
+    await mf.dispatchFetch(BASE + '/t/jiashiben/todos/jt1', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + jwt },
+    })
+  );
+  assert.equal(got.status, 200);
+  assert.equal(got.body.title, 'JWT 任务');
+  assert.equal(got.body.owner_openid, 'u_jwt', 'owner must come from JWT sub, not any injected header');
+
+  await jres(await req('DELETE', '/t/jiashiben/todos/jt1', { headers: { 'X-User-Id': 'u_jwt' } }));
+});
+
+test('B1: unknown-kid / tampered JWT -> 401', async () => {
+  const jwt = signJwt(
+    { sub: 'x', tid: 'jiashiben', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    PRIV_PEM,
+    { kid: 'unknown-kid' }
+  );
+  const r = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + jwt },
+  });
+  assert.equal(r.status, 401);
+});
+
+test('B1: JWT with wrong tenant -> 403', async () => {
+  const jwt = signJwt(
+    { sub: 'x', tid: 'other-tenant', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    PRIV_PEM
+  );
+  const r = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + jwt },
+  });
+  assert.equal(r.status, 403);
 });
 
 // Miniflare keeps a workerd subprocess alive; dispose it so the process

@@ -17,7 +17,10 @@ import { Hono } from 'hono';
 const dataRoute = new Hono();
 
 const now = () => Date.now();
-const ownerOf = (c) => c.req.header('X-User-Id') || 'anonymous';
+// Identity comes from the X-User-Id header (gateway proxy, X-Sync-Key channel)
+// or, on the JWT channel, from the verified token subject surfaced as context
+// state by the global dual guard (B1). Falls back to 'anonymous'.
+const ownerOf = (c) => c.get('userId') || c.req.header('X-User-Id') || 'anonymous';
 
 // JSON columns are stored as TEXT; parse them back into objects on read so
 // callers receive structured data instead of raw strings.

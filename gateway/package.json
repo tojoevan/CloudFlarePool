@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/gateway.test.mjs"
+    "test": "node --test \"test/*.mjs\""
   },
   "dependencies": {}
 }

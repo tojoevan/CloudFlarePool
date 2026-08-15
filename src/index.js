@@ -3,6 +3,7 @@ import { healthRoute } from './routes/health.js';
 import { tenantsRoute } from './routes/tenants.js';
 import { dataRoute } from './routes/data.js';
 import { migrate } from './lib/schema.js';
+import { dualGuard } from './lib/auth.js';
 
 const app = new Hono();
 
@@ -17,14 +18,15 @@ app.get('/', (c) =>
 );
 app.route('/', healthRoute);
 
-// --- Global guard: every other route requires a valid X-Sync-Key ----------
-// The data lake is a pure storage backend. It only trusts the gateway
-// (home.inkspcl.com) which has authenticated the end user upstream.
+// --- Global guard: dual-mode (B1) ----------------------------------------
+// The data lake is a pure storage backend. It accepts two channels:
+//   1. Bearer JWT (Ed25519) — client channel, verified with public keys.
+//   2. X-Sync-Key            — internal gateway channel (legacy, unchanged).
+// The published mini-program still arrives via the gateway's X-Sync-Key
+// proxy, so this change is fully backward compatible.
 app.use('*', async (c, next) => {
-  const key = c.req.header('X-Sync-Key');
-  if (!c.env.INTERNAL_KEY || key !== c.env.INTERNAL_KEY) {
-    return c.json({ error: 'forbidden: invalid or missing X-Sync-Key' }, 403);
-  }
+  const res = await dualGuard(c, c.env);
+  if (res) return res;
   await next();
 });
 
