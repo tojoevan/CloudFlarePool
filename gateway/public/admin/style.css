@@ -23,7 +23,7 @@ html, body {
 }
 
 #app {
-  max-width: 480px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
 }
@@ -34,6 +34,12 @@ html, body {
   border-radius: var(--radius);
   padding: 24px 20px;
   box-shadow: 0 6px 24px rgba(31, 42, 36, 0.06);
+}
+
+/* 登录卡片在宽屏下不要被拉太长 */
+#login {
+  max-width: 400px;
+  margin: 32px auto;
 }
 
 .hidden { display: none !important; }
@@ -153,6 +159,11 @@ button.ghost {
   font-size: 14px;
 }
 
+/* 宽屏：统计卡 4 列铺满 */
+@media (min-width: 720px) {
+  .cards { grid-template-columns: repeat(4, 1fr); }
+}
+
 .foot {
   margin: 18px 0 0;
   text-align: center;
@@ -176,3 +187,97 @@ button.ghost {
 
 .toast.ok { background: #2f5d3a; }
 .toast.bad { background: #8a3b2c; }
+
+/* 标签导航 */
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.tab {
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.panel-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+button.sm { padding: 7px 12px; font-size: 13px; }
+button.primary { background: var(--brand); }
+button.ghost.sm { border: 1px solid var(--line); border-radius: 8px; }
+
+/* 表格 */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tbl th, .tbl td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.tbl th { color: var(--muted); font-weight: 600; background: #fbfcfb; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl code { font-size: 12px; color: var(--ink); }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge.ok { background: #e6f1e9; color: #2f5d3a; }
+.badge.bad { background: #f6e6e1; color: #8a3b2c; }
+
+/* 密钥一次性显示 */
+.secret-box {
+  border: 1px dashed var(--danger);
+  background: #fdf3f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.secret-warn { margin: 0 0 8px; color: var(--danger); font-size: 13px; font-weight: 600; }
+.secret-box code {
+  display: block;
+  word-break: break-all;
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+/* 表单（改密） */
+.form { display: block; }
+.form input { margin-bottom: 10px; }
+

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { generateKeyPairSync } from 'node:crypto';
 import { signJwt, signServiceToken, signT4 } from '../gateway/lib/jwt.js';
+import { hashPassword } from '../src/lib/password.js';
 
 const KEY = 'test-internal-key';
 const BASE = 'https://data.kapibala.icu';
@@ -399,6 +400,137 @@ test('Phase3: T2 token cannot reach /admin (403)', async () => {
     headers: { Authorization: 'Bearer ' + t2 },
   });
   assert.equal(r.status, 403, 'non-admin token must be rejected from /admin');
+});
+
+// ===== Phase 3 (B3): T4 admin — Account & Key Center =====
+test('Phase3: T4 lists users of own tenant + disable/enable', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  const db = await mf.getD1Database('DB');
+  await db
+    .prepare('INSERT INTO users (id, tenant_id, email, status, provider, created_at) VALUES (?,?,?,?,?,?)')
+    .bind('u_adm_1', 'weijiashi', 'member@weijiashi.app', 'active', 'native', Date.now())
+    .run();
+
+  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+
+  let r = await jres(await mf.dispatchFetch(BASE + '/admin/users', { method: 'GET', headers: { Authorization: 'Bearer ' + t4 } }));
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body));
+  assert.ok(r.body.some((u) => u.email === 'member@weijiashi.app'), 'seeded user must appear');
+
+  r = await jres(
+    await mf.dispatchFetch(BASE + '/admin/users/u_adm_1/status', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + t4, 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'disabled' }),
+    })
+  );
+  assert.equal(r.status, 200);
+  let row = await db.prepare('SELECT status FROM users WHERE id=?').bind('u_adm_1').first();
+  assert.equal(row.status, 'disabled', 'user must be disabled');
+
+  r = await jres(
+    await mf.dispatchFetch(BASE + '/admin/users/u_adm_1/status', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + t4, 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'active' }),
+    })
+  );
+  assert.equal(r.status, 200);
+
+  await db.prepare('DELETE FROM users WHERE id=?').bind('u_adm_1').run();
+});
+
+test('Phase3: T4 lists + issues + revokes service keys', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+
+  let r = await jres(await mf.dispatchFetch(BASE + '/admin/keys', { method: 'GET', headers: { Authorization: 'Bearer ' + t4 } }));
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body));
+
+  r = await jres(
+    await mf.dispatchFetch(BASE + '/admin/keys', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + t4, 'content-type': 'application/json' },
+      body: JSON.stringify({ scope: ['data:read', 'data:write'] }),
+    })
+  );
+  assert.equal(r.status, 200);
+  assert.ok(r.body.raw_secret, 'raw_secret returned once');
+  assert.equal(r.body.tenant_bound, true);
+  assert.equal(r.body.tenant_id, 'weijiashi');
+  const kid = r.body.id;
+
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/keys', { method: 'GET', headers: { Authorization: 'Bearer ' + t4 } }));
+  assert.ok(r.body.some((k) => k.id === kid), 'issued key must be listed');
+
+  r = await jres(
+    await mf.dispatchFetch(BASE + '/admin/keys/' + kid + '/revoke', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + t4 },
+    })
+  );
+  assert.equal(r.status, 200);
+  assert.equal(r.body.status, 'revoked');
+});
+
+test('Phase3: T4 self password change (wrong old -> 401, correct old -> 200)', async () => {
+  const db = await mf.getD1Database('DB');
+  const oldPwd = 'OldPass1234';
+  const newPwd = 'NewPass5678';
+  const hash = await hashPassword(oldPwd);
+  await db
+    .prepare('INSERT INTO admin_accounts (id, app_id, tenant_id, email, pwd_hash, role, status, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .bind('adm_self', 'jiashiben', 'weijiashi', 'self@weijiashi.app', hash, 'tenant', 'active', Date.now())
+    .run();
+
+  const t4 = signT4({ sub: 'adm_self', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+
+  let r = await jres(
+    await mf.dispatchFetch(BASE + '/admin/me/password', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + t4, 'content-type': 'application/json' },
+      body: JSON.stringify({ old_password: 'WrongPass', new_password: newPwd }),
+    })
+  );
+  assert.equal(r.status, 401, 'wrong old password must be rejected');
+
+  r = await jres(
+    await mf.dispatchFetch(BASE + '/admin/me/password', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + t4, 'content-type': 'application/json' },
+      body: JSON.stringify({ old_password: oldPwd, new_password: newPwd }),
+    })
+  );
+  assert.equal(r.status, 200, 'correct old password must allow change');
+
+  const row = await db.prepare('SELECT pwd_hash FROM admin_accounts WHERE id=?').bind('adm_self').first();
+  assert.notEqual(row.pwd_hash, hash, 'pwd_hash must be updated');
+  assert.ok(
+    typeof row.pwd_hash === 'string' && /^[0-9a-f]{32}\$\d+\$[0-9a-f]+$/.test(row.pwd_hash),
+    'new pwd_hash must be a valid non-empty PBKDF2 string (regression: must never be NULL/empty)'
+  );
+
+  // 改密后：新密码必须能登录、旧密码失效（account.js pbkdf2Verify 同为 WebCrypto，能验过 me/password 生成的 hash）
+  const vNew = await jres(
+    await mf.dispatchFetch(BASE + '/internal/admin/verify', {
+      method: 'POST',
+      headers: { 'X-Sync-Key': KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'self@weijiashi.app', password: newPwd }),
+    })
+  );
+  assert.equal(vNew.status, 200, 'new password must log in after change');
+  const vOld = await jres(
+    await mf.dispatchFetch(BASE + '/internal/admin/verify', {
+      method: 'POST',
+      headers: { 'X-Sync-Key': KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'self@weijiashi.app', password: oldPwd }),
+    })
+  );
+  assert.equal(vOld.status, 401, 'old password must be invalid after change');
+
+  await db.prepare('DELETE FROM admin_accounts WHERE id=?').bind('adm_self').run();
 });
 
 // Miniflare keeps a workerd subprocess alive; dispose it so the process
