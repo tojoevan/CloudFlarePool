@@ -7,6 +7,7 @@ import { migrate } from './lib/schema.js';
 import { dualGuard } from './lib/auth.js';
 import { accountRoute } from './routes/account.js';
 import { keysRoute } from './routes/keys.js';
+import { adminRoute } from './routes/admin.js';
 
 const app = new Hono();
 
@@ -48,5 +49,6 @@ app.route('/v1/a', appsRoute); // app-dimension management (Phase 1)
 app.route('/t', dataRoute); // /t/:tenant/* data API
 app.route('/v1/a', keysRoute); // T3 api_keys management (Phase 2)
 app.route('/internal', accountRoute); // internal account verification (Phase 2)
+app.route('/admin', adminRoute); // T4 admin read-only dashboard (Phase 3)
 
 export default app;

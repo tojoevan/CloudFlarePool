@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>微家事 · Web</title>
+  <link rel="stylesheet" href="/app/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 登录 -->
+    <section id="login" class="card">
+      <h1>微家事</h1>
+      <p class="sub">账号登录</p>
+      <form id="login-form">
+        <input id="email" type="email" placeholder="邮箱" autocomplete="username" required />
+        <input id="password" type="password" placeholder="密码" autocomplete="current-password" required />
+        <button type="submit" id="login-btn">登录</button>
+        <p id="login-err" class="err"></p>
+      </form>
+    </section>
+
+    <!-- 主界面 -->
+    <section id="main" class="card hidden">
+      <header class="topbar">
+        <div>
+          <h1>微家事</h1>
+          <p class="sub" id="who"></p>
+        </div>
+        <button id="logout" class="ghost">退出</button>
+      </header>
+      <form id="add-form" class="add">
+        <input id="title" type="text" placeholder="添加待办…" maxlength="200" required />
+        <button type="submit">添加</button>
+      </form>
+      <ul id="list" class="list"></ul>
+      <p id="empty" class="empty hidden">还没有待办，添加第一条吧。</p>
+    </section>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app/app.js"></script>
+</body>
+</html>

@@ -92,6 +92,20 @@ function filterOutgoing(h) {
   return out;
 }
 
+// 轻量、未验签的 JWT 解码，仅用于路由层读取 `typ` 声明（真正密码学验签
+// 交给数据湖）。防止把 T4 admin / T1 微信令牌透传到 SPA 代理通道。
+function jwtTyp(token) {
+  try {
+    const p = String(token).split('.')[1];
+    if (!p) return null;
+    const pad = p.length % 4 ? 4 - (p.length % 4) : 0;
+    const json = JSON.parse(Buffer.from(p + '='.repeat(pad), 'base64').toString('utf8'));
+    return json && json.typ;
+  } catch {
+    return null;
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -102,6 +116,38 @@ const server = http.createServer(async (req, res) => {
       const html = await readFile(join(__dirname, 'public', 'index.html'));
       res.writeHead(200, { 'content-type': MIME['.html'] });
       res.end(html);
+      return;
+    }
+
+    // 1b) Web SPA（T2 客户端）托管在 /app/ 子路径——保持 / 隐私页不动（ICP 合规）
+    if (req.method === 'GET' && path.startsWith('/app/')) {
+      const rel = (path.slice('/app/'.length) || 'index.html').replace(/\.{2,}/g, '');
+      const spaRoot = join(__dirname, 'public', 'spa');
+      const file = join(spaRoot, rel);
+      if (!file.startsWith(spaRoot)) { sendJson(res, 403, { error: 'forbidden' }); return; }
+      try {
+        const data = await readFile(file);
+        res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
+        res.end(data);
+      } catch {
+        sendJson(res, 404, { error: 'not found' });
+      }
+      return;
+    }
+
+    // 1c) 管理后台（T4 客户端）托管在 /admin/ 子路径——保持 / 隐私页与 /app/ 不动
+    if (req.method === 'GET' && path.startsWith('/admin/')) {
+      const rel = (path.slice('/admin/'.length) || 'index.html').replace(/\.{2,}/g, '');
+      const spaRoot = join(__dirname, 'public', 'admin');
+      const file = join(spaRoot, rel);
+      if (!file.startsWith(spaRoot)) { sendJson(res, 403, { error: 'forbidden' }); return; }
+      try {
+        const data = await readFile(file);
+        res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
+        res.end(data);
+      } catch {
+        sendJson(res, 404, { error: 'not found' });
+      }
       return;
     }
 
@@ -197,6 +243,62 @@ const server = http.createServer(async (req, res) => {
       }
       req.ctx = { openid: claims.openid };
       proxyToDataLake(req, res, claims.tenantId || CFG.tenantId);
+      return;
+    }
+
+    // 4b) T2 客户端通道反代：浏览器持 T2 Bearer，原样转发到数据湖
+    //     数据湖验签 Ed25519 并据 sub 做 owner 隔离；仅放行 typ=account
+    //     （轻量 typ 校验防 T4/T1 透传，密码学验签交给数据湖 dualGuard）
+    if (path.startsWith('/api/t2data/')) {
+      const token = bearerFrom(req);
+      if (!token) { sendJson(res, 401, { error: 'unauthorized: missing bearer' }); return; }
+      if (jwtTyp(token) !== 'account') {
+        sendJson(res, 403, { error: 'forbidden: only T2 account tokens allowed on this channel' });
+        return;
+      }
+      const rest = req.url.replace(/^\/api\/t2data\/?/, '');
+      const target = new URL(`/t/${encodeURIComponent(CFG.tenantId)}/${rest}`, CFG.dataLakeBase);
+      const headers = { ...req.headers };
+      delete headers['host'];
+      // Authorization（T2 Bearer）保留——数据湖据此验签并设置 userId=sub
+      const transport = target.protocol === 'https:' ? https : http;
+      const proxyReq = transport.request(target, { method: req.method, headers }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, filterOutgoing(proxyRes.headers));
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', () => {
+        if (!res.headersSent) sendJson(res, 502, { error: 'data lake unreachable' });
+        else res.end();
+      });
+      req.pipe(proxyReq);
+      return;
+    }
+
+    // 4c) T4 管理后台通道反代：admin 持 T4 Bearer，原样转发到数据湖 /admin/*
+    //     数据湖校验 typ==='admin' 并据 role 返回租户统计；仅放行 typ=admin
+    //     （轻量 typ 校验防 T2/T1 透传，密码学验签交给数据湖 dualGuard）
+    if (path.startsWith('/api/t4data/')) {
+      const token = bearerFrom(req);
+      if (!token) { sendJson(res, 401, { error: 'unauthorized: missing bearer' }); return; }
+      if (jwtTyp(token) !== 'admin') {
+        sendJson(res, 403, { error: 'forbidden: only T4 admin tokens allowed on this channel' });
+        return;
+      }
+      const rest = req.url.replace(/^\/api\/t4data\/?/, '');
+      const target = new URL(`/admin/${rest}`, CFG.dataLakeBase);
+      const headers = { ...req.headers };
+      delete headers['host'];
+      // Authorization（T4 Bearer）保留——数据湖据此校验 admin 身份
+      const transport = target.protocol === 'https:' ? https : http;
+      const proxyReq = transport.request(target, { method: req.method, headers }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, filterOutgoing(proxyRes.headers));
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', () => {
+        if (!res.headersSent) sendJson(res, 502, { error: 'data lake unreachable' });
+        else res.end();
+      });
+      req.pipe(proxyReq);
       return;
     }
 

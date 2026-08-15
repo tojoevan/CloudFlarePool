@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { generateKeyPairSync } from 'node:crypto';
-import { signJwt, signServiceToken } from '../gateway/lib/jwt.js';
+import { signJwt, signServiceToken, signT4 } from '../gateway/lib/jwt.js';
 
 const KEY = 'test-internal-key';
 const BASE = 'https://data.kapibala.icu';
@@ -367,6 +367,38 @@ test('B2: rotation keeps old kid valid during grace period', async () => {
 test('B2: /internal/account/verify rejects unknown user', async () => {
   const r = await jres(await req('POST', '/internal/account/verify', { body: { email: 'nobody@example.com', password: 'x' } }));
   assert.equal(r.status, 401, 'unknown user must be rejected');
+});
+
+// ===== Phase 3 (B3): T4 admin read-only dashboard =====
+test('Phase3: T4 admin reads /admin/stats for own tenant', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/t/weijiashi/todos', { headers: { 'X-User-Id': 'u1' }, body: { id: 'pa1', title: 'admin-visible' } }));
+
+  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const r = await jres(
+    await mf.dispatchFetch(BASE + '/admin/stats', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + t4 },
+    })
+  );
+  assert.equal(r.status, 200, 'T4 must reach /admin/stats');
+  assert.equal(r.body.scope, 'tenant');
+  assert.equal(r.body.counts.todos, 1, 'stats must reflect seeded todo');
+  assert.equal(r.body.tenant.tenant_id, 'weijiashi');
+
+  await jres(await req('DELETE', '/t/weijiashi/todos/pa1', { headers: { 'X-User-Id': 'u1' } }));
+});
+
+test('Phase3: T2 token cannot reach /admin (403)', async () => {
+  const t2 = signJwt(
+    { sub: 'u2', aid: 'jiashiben', tid: 'weijiashi', typ: 'account', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    PRIV_PEM
+  );
+  const r = await mf.dispatchFetch(BASE + '/admin/stats', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + t2 },
+  });
+  assert.equal(r.status, 403, 'non-admin token must be rejected from /admin');
 });
 
 // Miniflare keeps a workerd subprocess alive; dispose it so the process

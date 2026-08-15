@@ -183,6 +183,7 @@ export async function dualGuard(c, env) {
           }
         }
         c.set('userId', String(svc.payload.sub));
+        c.set('userTyp', 'service');
         c.set('scopes', svc.payload.scp || []);
         return null;
       }
@@ -206,11 +207,14 @@ export async function dualGuard(c, env) {
         }
         c.set('appId', aid);
       }
-      // Surface the verified subject via Hono context state so downstream /t/*
-      // routes can read it. (Mutating incoming request headers is disallowed
-      // under workerd; context state is the portable approach.) The X-Sync-Key
-      // path leaves userId unset and keeps using the X-User-Id header.
+      // Surface the verified subject + token metadata via Hono context state so
+      // downstream routes (e.g. /admin) can enforce role-based scope. The
+      // X-Sync-Key path leaves these unset and keeps using the X-User-Id header.
       c.set('userId', String(p.sub));
+      c.set('userTyp', p.typ || null); // 'account' | 'admin' | 'service'
+      c.set('userTid', p.tid || null);
+      c.set('userAid', p.aid || null);
+      c.set('userRole', p.role || null); // admin role: platform | app | tenant
       return null;
     } catch (e) {
       return c.json({ error: `unauthorized: ${e.message}` }, 401);
