@@ -52,6 +52,16 @@ function requireAdmin(c) {
   return null;
 }
 
+// platform 角色专属：在 requireAdmin 基础上再要求 role === 'platform'。
+function requirePlatform(c) {
+  const d = requireAdmin(c);
+  if (d) return d;
+  if (c.get('userRole') !== 'platform') {
+    return c.json({ error: 'forbidden: platform role required' }, 403);
+  }
+  return null;
+}
+
 // 管理员操作留痕（best-effort：审计失败不阻断主操作）。所有 T4 写操作在
 // 成功后调用，写入 admin_audit_log（tenant_id 取令牌归属租户，platform 为 NULL）。
 async function audit(c, action, target, detail) {
@@ -182,6 +192,61 @@ adminRoute.post('/me/password', async (c) => {
   return c.json({ ok: true });
 });
 
+// 生成一次性恢复码（登录态、需 T4）。返回明文仅一次，库内存 SHA-256(recovery_code)。
+// 忘记密码时凭 email + 恢复码自助重置（见下方 /recover）。恢复码用后作废。
+adminRoute.post('/me/recovery/generate', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const db = c.env.DB;
+  const adminId = c.get('userId');
+  const code = bytesToB64url(crypto.getRandomValues(new Uint8Array(18)));
+  const codeHash = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code)));
+  await db.prepare('UPDATE admin_accounts SET recovery_hash = ? WHERE id = ?').bind(codeHash, adminId).run();
+  await audit(c, 'recovery.generate', `admin:${adminId}`);
+  return c.json({ ok: true, recovery_code: code });
+});
+
+// 忘记密码自助重置（公开端点，经网关 X-Sync-Key 调用，无需 T4 令牌）。
+// 凭 email + recovery_code + 新密码重置；成功后作废恢复码（防复用）。
+// 错误统一返回 400，不区分「邮箱不存在 / 恢复码错误」，避免账号枚举。
+adminRoute.post('/recover', async (c) => {
+  const db = c.env.DB;
+  const b = await c.req.json().catch(() => ({}));
+  const email = String(b.email || '').trim().toLowerCase();
+  const code = b.recovery_code || '';
+  const np = b.new_password || '';
+  if (!email || !code || String(np).length < 8) {
+    return c.json({ error: 'invalid request' }, 400);
+  }
+  const row = await db
+    .prepare('SELECT id, status, recovery_hash FROM admin_accounts WHERE email = ?')
+    .bind(email)
+    .first();
+  if (!row || row.status !== 'active' || !row.recovery_hash) {
+    return c.json({ error: 'invalid email or recovery code' }, 400);
+  }
+  const codeHash = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code)));
+  if (codeHash !== row.recovery_hash) {
+    return c.json({ error: 'invalid email or recovery code' }, 400);
+  }
+  let newHash;
+  try {
+    newHash = await hashPassword(np);
+  } catch {
+    return c.json({ error: 'password hashing failed' }, 500);
+  }
+  if (typeof newHash !== 'string' || !/^[0-9a-f]{32}\$\d+\$[0-9a-f]+$/.test(newHash)) {
+    return c.json({ error: 'generated hash invalid' }, 500);
+  }
+  await db
+    .prepare('UPDATE admin_accounts SET pwd_hash = ?, recovery_hash = NULL WHERE id = ?')
+    .bind(newHash, row.id)
+    .run();
+  await audit(c, 'password.recover', `admin:${row.id}`);
+  return c.json({ ok: true });
+});
+
 // 用户账号列表（租户内）。
 adminRoute.get('/users', async (c) => {
   const deny = requireAdmin(c);
@@ -278,6 +343,48 @@ adminRoute.post('/keys/:id/revoke', async (c) => {
     .run();
   await audit(c, 'key.revoke', `key:${id}`);
   return c.json({ ok: true, id, status: 'revoked' });
+});
+
+// ===== Admin Management (platform only) =====
+// 平台管理员名录（不含 pwd_hash / recovery_hash）。tenant 角色无权访问。
+adminRoute.get('/accounts', async (c) => {
+  const deny = requirePlatform(c);
+  if (deny) return deny;
+
+  const db = c.env.DB;
+  const rows = await db
+    .prepare('SELECT id, email, role, status, created_at FROM admin_accounts ORDER BY created_at DESC')
+    .all();
+  return c.json(rows.results || []);
+});
+
+// 平台管理员代重置某管理员密码（platform 专属）。重置后作废其恢复码，
+// 强制其重新生成；新密码由代操作管理员线下传达（无邮件/短信依赖）。
+adminRoute.post('/accounts/:id/reset', async (c) => {
+  const deny = requirePlatform(c);
+  if (deny) return deny;
+
+  const db = c.env.DB;
+  const id = c.req.param('id');
+  const b = await c.req.json().catch(() => ({}));
+  const np = b.new_password || '';
+  if (String(np).length < 8) {
+    return c.json({ error: 'new_password too short (>=8 chars)' }, 400);
+  }
+  const row = await db.prepare('SELECT id, status FROM admin_accounts WHERE id = ?').bind(id).first();
+  if (!row) return c.json({ error: 'admin not found' }, 404);
+  let newHash;
+  try {
+    newHash = await hashPassword(np);
+  } catch {
+    return c.json({ error: 'password hashing failed' }, 500);
+  }
+  if (typeof newHash !== 'string' || !/^[0-9a-f]{32}\$\d+\$[0-9a-f]+$/.test(newHash)) {
+    return c.json({ error: 'generated hash invalid' }, 500);
+  }
+  await db.prepare('UPDATE admin_accounts SET pwd_hash = ?, recovery_hash = NULL WHERE id = ?').bind(newHash, id).run();
+  await audit(c, 'password.reset', `admin:${id}`, { by: c.get('userId') });
+  return c.json({ ok: true, id });
 });
 
 // ===== Data Browser & Content Management（数据浏览器/内容管理） =====

@@ -139,6 +139,7 @@ export const CREATE_STATEMENTS = [
     pwd_hash     TEXT,                     -- PBKDF2-SHA256
     role         TEXT DEFAULT 'tenant',    -- platform | app | tenant
     status       TEXT DEFAULT 'active',
+    recovery_hash TEXT,                    -- SHA-256(recovery_code); NULL = 未设置
     created_at   INTEGER
   )`,
 
@@ -177,6 +178,18 @@ export async function migrate(db) {
   // hard-wired as "jiashiben"). Add the column idempotently and backfill NULLs so
   // the two-dimensional (app_id + tenant_id) isolation works on live data.
   await ensureTenantAppId(db);
+  // 已上线的 admin_accounts 表可能缺少 recovery_hash（恢复码）列，幂等补齐。
+  await ensureAdminRecoveryHash(db);
+}
+
+// Idempotent: add `recovery_hash` to an already-existing `admin_accounts` table
+// if missing (used by the self-service password recovery flow).
+async function ensureAdminRecoveryHash(db) {
+  const cols = await db.prepare('PRAGMA table_info(admin_accounts)').all();
+  const has = (cols.results || []).some((c) => c.name === 'recovery_hash');
+  if (!has) {
+    await db.prepare('ALTER TABLE admin_accounts ADD COLUMN recovery_hash TEXT').run();
+  }
 }
 
 // Idempotent: add `app_id` to an already-existing `tenants` table if missing,

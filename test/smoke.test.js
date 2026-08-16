@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { generateKeyPairSync } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { signJwt, signServiceToken, signT4 } from '../gateway/lib/jwt.js';
 import { hashPassword } from '../src/lib/password.js';
 
@@ -851,4 +852,72 @@ test('RateLimit: service key over write limit -> 429 (pre-seeded counter)', asyn
 test.after(async () => {
   await mf.dispose();
   process.exit(0);
+});
+
+// ===== Phase 3 (B3): password recovery + admin management =====
+test('Phase3: T4 generates recovery code, then /recover self-resets password', async () => {
+  const db = await mf.getD1Database('DB');
+  const email = 'recover_' + Date.now() + '@ex.com';
+  const code = 'RC-' + Math.random().toString(36).slice(2);
+  const codeHash = createHash('sha256').update(code).digest('hex');
+  await db
+    .prepare('INSERT INTO admin_accounts (id, app_id, tenant_id, email, pwd_hash, role, status, recovery_hash, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+    .bind('adm_rc', 'jiashiben', 'weijiashi', email, await hashPassword('oldpass12'), 'tenant', 'active', codeHash, Date.now())
+    .run();
+
+  // wrong code -> 400 (generic, no enumeration)
+  let r = await jres(await req('POST', '/admin/recover', { body: { email, recovery_code: 'wrong', new_password: 'newpass123' } }));
+  assert.equal(r.status, 400, 'wrong recovery code must be rejected');
+
+  // correct code -> 200, password reset, code invalidated
+  r = await jres(await req('POST', '/admin/recover', { body: { email, recovery_code: code, new_password: 'newpass123' } }));
+  assert.equal(r.status, 200, 'valid recovery code must reset password');
+  const row = await db.prepare('SELECT pwd_hash, recovery_hash FROM admin_accounts WHERE id=?').bind('adm_rc').first();
+  assert.ok(/^[0-9a-f]{32}\$\d+\$[0-9a-f]+$/.test(row.pwd_hash), 'pwd_hash updated');
+  assert.equal(row.recovery_hash, null, 'recovery code invalidated after use');
+
+  // reused code fails
+  r = await jres(await req('POST', '/admin/recover', { body: { email, recovery_code: code, new_password: 'other9999' } }));
+  assert.equal(r.status, 400, 'reused recovery code must fail');
+});
+
+test('Phase3: T4 can generate a recovery code (plaintext returned once, hash stored)', async () => {
+  const db = await mf.getD1Database('DB');
+  await db
+    .prepare('INSERT INTO admin_accounts (id, app_id, tenant_id, email, pwd_hash, role, status, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .bind('adm_gen', 'jiashiben', 'weijiashi', 'gen@ex.com', await hashPassword('init1234'), 'tenant', 'active', Date.now())
+    .run();
+  const t4 = signT4({ sub: 'adm_gen', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const r = await jres(await mf.dispatchFetch(BASE + '/admin/me/recovery/generate', { method: 'POST', headers: { Authorization: 'Bearer ' + t4 } }));
+  assert.equal(r.status, 200, 'recovery generate must succeed');
+  assert.ok(typeof r.body.recovery_code === 'string' && r.body.recovery_code.length >= 8, 'recovery_code returned');
+  const row = await db.prepare('SELECT recovery_hash FROM admin_accounts WHERE id=?').bind('adm_gen').first();
+  assert.ok(row.recovery_hash && row.recovery_hash.length === 64, 'recovery_hash stored as sha256 hex');
+});
+
+test('Phase3: platform lists /accounts + resets; tenant forbidden from both', async () => {
+  const db = await mf.getD1Database('DB');
+  await db
+    .prepare('INSERT INTO admin_accounts (id, app_id, tenant_id, email, pwd_hash, role, status, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .bind('adm_target', 'jiashiben', 'weijiashi', 'target@ex.com', await hashPassword('init1234'), 'tenant', 'active', Date.now())
+    .run();
+
+  const plat = signT4({ sub: 'adm_plat', role: 'platform', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const ten = signT4({ sub: 'adm_ten', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+
+  let r = await jres(await mf.dispatchFetch(BASE + '/admin/accounts', { method: 'GET', headers: { Authorization: 'Bearer ' + ten } }));
+  assert.equal(r.status, 403, 'tenant role must be forbidden from /accounts');
+
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/accounts', { method: 'GET', headers: { Authorization: 'Bearer ' + plat } }));
+  assert.equal(r.status, 200, 'platform must list accounts');
+  assert.ok(Array.isArray(r.body) && r.body.some((a) => a.id === 'adm_target'), 'target admin listed');
+
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/accounts/adm_target/reset', { method: 'POST', headers: { Authorization: 'Bearer ' + plat }, body: JSON.stringify({ new_password: 'reset9999' }) }));
+  assert.equal(r.status, 200, 'platform reset must succeed');
+  const row = await db.prepare('SELECT pwd_hash, recovery_hash FROM admin_accounts WHERE id=?').bind('adm_target').first();
+  assert.ok(/^[0-9a-f]{32}\$\d+\$[0-9a-f]+$/.test(row.pwd_hash), 'pwd_hash updated');
+  assert.equal(row.recovery_hash, null, 'target recovery_hash nulled on reset');
+
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/accounts/adm_target/reset', { method: 'POST', headers: { Authorization: 'Bearer ' + ten }, body: JSON.stringify({ new_password: 'x9999999' }) }));
+  assert.equal(r.status, 403, 'tenant must be forbidden from reset');
 });

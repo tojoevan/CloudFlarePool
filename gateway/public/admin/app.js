@@ -9,6 +9,7 @@ const SPA_VERSION = 'v0.0.1'; // 前端语义版本（随发布维护）
 const getToken = () => localStorage.getItem(TOKEN_KEY);
 const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
 const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+let ADMIN_ROLE = null; // 当前登录管理员角色（platform 才显示「管理员」tab）
 
 function toast(msg, ok = true) {
   const t = $('#toast');
@@ -70,6 +71,8 @@ async function login(e) {
     if (!r.ok) throw new Error(j.error || '登录失败 ' + r.status);
     if (!j.token) throw new Error('未返回令牌');
     setToken(j.token);
+    ADMIN_ROLE = j.role || 'admin';
+    $('#tab-admins').classList.toggle('hidden', ADMIN_ROLE !== 'platform');
     $('#who').textContent = email + ' · ' + (j.role || 'admin');
     $('#password').value = '';
     showMain();
@@ -543,6 +546,7 @@ function switchTab(name) {
   if (name === 'users') loadUsers();
   if (name === 'keys') { $('#key-secret').classList.add('hidden'); loadKeys(); }
   if (name === 'audit') loadAudit();
+  if (name === 'admins') loadAdmins();
 }
 
 function logout() {
@@ -551,9 +555,114 @@ function logout() {
   toast('已退出');
 }
 
+// ===== 忘记密码（公开，无令牌）=====
+function showForgot() {
+  $('#login-form').classList.add('hidden');
+  $('#login-forgot').classList.add('hidden');
+  $('#forgot-form').classList.remove('hidden');
+  $('#forgot-err').textContent = '';
+}
+function showLoginForm() {
+  $('#forgot-form').classList.add('hidden');
+  $('#login-form').classList.remove('hidden');
+  $('#login-forgot').classList.remove('hidden');
+}
+async function submitForgot(e) {
+  e.preventDefault();
+  const email = $('#f-email').value.trim();
+  const code = $('#f-code').value.trim();
+  const pw = $('#f-pw').value;
+  const pw2 = $('#f-pw2').value;
+  $('#forgot-err').textContent = '';
+  if (pw !== pw2) { $('#forgot-err').textContent = '两次密码不一致'; return; }
+  if (pw.length < 8) { $('#forgot-err').textContent = '新密码至少 8 位'; return; }
+  $('#forgot-btn').disabled = true;
+  try {
+    const r = await fetch(API + '/api/admin/recover', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, recovery_code: code, new_password: pw }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || '重置失败 ' + r.status);
+    toast('密码已重置，请使用新密码登录');
+    showLoginForm();
+    $('#forgot-form').reset();
+  } catch (err) {
+    $('#forgot-err').textContent = err.message;
+  } finally {
+    $('#forgot-btn').disabled = false;
+  }
+}
+
+// ===== 账户恢复码（登录态）=====
+async function generateRecovery() {
+  try {
+    const k = await api('/api/t4data/me/recovery/generate', { method: 'POST' });
+    $('#rc-val').textContent = k.recovery_code;
+    $('#rc-box').classList.remove('hidden');
+    toast('恢复码已生成（旧码已作废）');
+  } catch (err) {
+    toast(err.message, false);
+  }
+}
+function copyRecovery() {
+  const v = $('#rc-val').textContent;
+  navigator.clipboard?.writeText(v).then(() => toast('已复制')).catch(() => toast('复制失败，请手动选择', false));
+}
+
+// ===== 管理员管理（platform）=====
+async function loadAdmins() {
+  const body = $('#admins-body');
+  body.innerHTML = '<tr><td colspan="5" class="empty">加载中…</td></tr>';
+  try {
+    const list = await api('/api/t4data/accounts');
+    if (!list.length) { body.innerHTML = '<tr><td colspan="5" class="empty">暂无其他管理员</td></tr>'; return; }
+    body.innerHTML = '';
+    for (const a of list) {
+      const tr = document.createElement('tr');
+      const disabled = a.status !== 'active';
+      tr.innerHTML =
+        `<td>${esc(a.email)}</td>` +
+        `<td>${esc(a.role || 'tenant')}</td>` +
+        `<td><span class="badge ${disabled ? 'bad' : 'ok'}">${disabled ? '已禁用' : '正常'}</span></td>` +
+        `<td>${fmtTime(a.created_at)}</td>` +
+        `<td><button class="ghost sm act" data-id="${esc(a.id)}">代重置密码</button></td>`;
+      body.appendChild(tr);
+    }
+    body.querySelectorAll('.act').forEach((b) =>
+      b.addEventListener('click', () => resetAdmin(b.dataset.id))
+    );
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="5" class="empty">${esc(err.message)}</td></tr>`;
+  }
+}
+
+async function resetAdmin(id) {
+  const np = prompt('为该管理员设置新密码（至少 8 位）：');
+  if (!np) return;
+  if (np.length < 8) { toast('密码至少 8 位', false); return; }
+  try {
+    await api('/api/t4data/accounts/' + encodeURIComponent(id) + '/reset', {
+      method: 'POST',
+      body: JSON.stringify({ new_password: np }),
+    });
+    toast('已重置，请线下将新密码告知对方');
+    loadAdmins();
+  } catch (err) {
+    toast(err.message, false);
+  }
+}
+
 // 绑定事件
 $('#login-form').addEventListener('submit', login);
 $('#logout').addEventListener('click', logout);
+$('#login-forgot').addEventListener('click', showForgot);
+$('#forgot-back').addEventListener('click', showLoginForm);
+$('#forgot-form').addEventListener('submit', submitForgot);
+$('#rc-gen').addEventListener('click', generateRecovery);
+$('#rc-copy').addEventListener('click', copyRecovery);
+$('#admins-refresh').addEventListener('click', loadAdmins);
 $('#tabs').addEventListener('click', (e) => {
   const t = e.target.closest('.tab');
   if (t) switchTab(t.dataset.tab);

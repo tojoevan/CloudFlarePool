@@ -172,6 +172,16 @@ button.ghost {
   margin: 6px 0 0;
 }
 
+.link {
+  color: var(--accent, #4a7cff);
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+  margin: 10px 0 0;
+  user-select: none;
+}
+.link:hover { text-decoration: underline; }
+
 .topbar {
   display: flex;
   align-items: flex-start;

@@ -288,6 +288,28 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // 6b) 忘记密码自助重置（公开，无需令牌）：经 X-Sync-Key 调数据湖 /admin/recover
+    if (req.method === 'POST' && path === '/api/admin/recover') {
+      const { email, recovery_code, new_password } = await readJson(req);
+      if (!email || !recovery_code || !new_password || String(new_password).length < 8) {
+        sendJson(res, 400, { error: 'email, recovery_code and new_password(>=8) required' });
+        return;
+      }
+      try {
+        const r = await fetch(`${CFG.dataLakeBase}/admin/recover`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-sync-key': CFG.internalKey },
+          body: JSON.stringify({ email, recovery_code, new_password }),
+        });
+        const j = await r.json();
+        const code = r.status === 200 ? 200 : r.status === 400 ? 400 : 500;
+        sendJson(res, code, { ok: j.ok || false, error: j.error || 'recover failed' });
+      } catch {
+        sendJson(res, 502, { error: 'data lake unreachable' });
+      }
+      return;
+    }
+
     // 4) 数据反代：所有小程序数据请求都经过这里
     if (path.startsWith('/api/data/')) {
       const token = bearerFrom(req);

@@ -89,6 +89,7 @@ export function signT4({ sub, role, appId, tenantId, ttl = 2592000, privateKeyPe
   return signJwt(
     {
       sub,
+      role,
       aid: appId || null,
       tid: tenantId || null,
       typ: 'admin',

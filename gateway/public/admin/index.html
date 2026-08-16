@@ -20,6 +20,16 @@
         <button type="submit" id="login-btn">登录</button>
         <p id="login-err" class="err"></p>
       </form>
+      <p id="login-forgot" class="link">忘记密码？</p>
+      <form id="forgot-form" class="hidden">
+        <input id="f-email" type="email" placeholder="管理员邮箱" autocomplete="username" required />
+        <input id="f-code" type="text" placeholder="账户恢复码" required />
+        <input id="f-pw" type="password" placeholder="新密码（≥8 位）" autocomplete="new-password" required />
+        <input id="f-pw2" type="password" placeholder="确认新密码" autocomplete="new-password" required />
+        <button type="submit" id="forgot-btn">重置密码</button>
+        <p id="forgot-err" class="err"></p>
+        <p id="forgot-back" class="link">返回登录</p>
+      </form>
     </section>
 
     <!-- 主界面 -->
@@ -38,6 +48,7 @@
         <button class="tab" data-tab="users">用户账号</button>
         <button class="tab" data-tab="keys">服务密钥</button>
         <button class="tab" data-tab="security">安全</button>
+        <button class="tab hidden" data-tab="admins" id="tab-admins">管理员</button>
         <button class="tab" data-tab="audit">审计</button>
       </nav>
 
@@ -128,6 +139,30 @@
           <button type="submit" id="pw-btn">保存</button>
           <p id="pw-msg" class="err"></p>
         </form>
+        <div class="panel-head" style="margin-top:18px"><h2>账户恢复码</h2></div>
+        <div class="form">
+          <p class="foot">恢复码用于「忘记密码」时自助重置，与密码无关、泄露风险等同，请离线妥善保存。生成后旧码立即作废。</p>
+          <button class="ghost sm" id="rc-gen" type="button">生成恢复码</button>
+          <div id="rc-box" class="secret-box hidden">
+            <p class="secret-warn">⚠️ 恢复码仅显示一次，请立即复制保存：</p>
+            <code id="rc-val"></code>
+            <button class="ghost sm" id="rc-copy" type="button">复制</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 管理员（平台） -->
+      <div class="panel hidden" id="panel-admins">
+        <div class="panel-head">
+          <h2>管理员（平台）</h2>
+          <button class="ghost sm" id="admins-refresh" type="button">刷新</button>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr><th>邮箱</th><th>角色</th><th>状态</th><th>创建</th><th>操作</th></tr></thead>
+            <tbody id="admins-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- 审计日志 -->
