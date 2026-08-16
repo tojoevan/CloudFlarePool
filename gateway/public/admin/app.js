@@ -573,21 +573,39 @@ $('#data-export-json').addEventListener('click', () => exportData('json'));
 $('#audit-action').addEventListener('change', (e) => { auditState.action = e.target.value; auditState.offset = 0; loadAudit(); });
 $('#audit-refresh').addEventListener('click', () => { auditState.offset = 0; loadAudit(); });
 
-// 启动：底部组合版本号（前端语义版本.后端部署 git HEAD），形如 v0.0.1.4471e45
+// 启动：拉取版本矩阵（网关 / 数据湖 / 小程序），填充 footer 与概览
 async function loadVersion() {
-  let hash = '';
+  let gw = '', dl = '', mp = '';
   try {
     const r = await fetch(API + '/api/health');
     const j = await r.json().catch(() => ({}));
-    hash = j.git ? j.git : (j.name ? 'connected' : '');
+    dl = j.dataLakeGit || j.git || '';
+    gw = j.gatewayGit || '';
+    mp = j.miniappVersion || '';
   } catch (_) {}
-  $('#ver-full').textContent = hash ? `${SPA_VERSION}.${hash}` : SPA_VERSION;
+
+  // footer：前端 · 网关 · 数据湖
+  $('#ver-front').textContent = SPA_VERSION;
+  $('#ver-gw').textContent = gw || '未配置';
+  $('#ver-dl').textContent = dl || '未配置';
+  // 网关与数据湖部署自不同 commit → 配套异常，标红
+  const mismatch = !!(gw && dl && gw !== dl);
+  $('#deploy-btn').classList.toggle('warn', mismatch);
+  $('#ver-gw').classList.toggle('warn', mismatch);
+  $('#ver-dl').classList.toggle('warn', mismatch);
+
+  // 概览版本矩阵
+  $('#ver-sp2').textContent = SPA_VERSION;
+  $('#ver-gw2').textContent = gw || '未配置';
+  $('#ver-dl2').textContent = dl || '未配置';
+  $('#ver-mp').textContent = mp || '未配置';
+  $('#ver-mp').classList.toggle('warn', !mp);
 }
 loadVersion();
 
-// 复制组合版本号（如 v0.0.1.4471e45），便于粘贴到提交 / 工单
+// 复制版本矩阵：前端 v0.0.1 · 网关 xxx · 数据湖 yyy
 function copyVersion() {
-  const full = $('#ver-full').textContent.trim();
+  const full = `前端 ${SPA_VERSION} · 网关 ${$('#ver-gw').textContent} · 数据湖 ${$('#ver-dl').textContent}`;
   navigator.clipboard?.writeText(full)
     .then(() => toast('已复制版本 ' + full))
     .catch(() => toast('复制失败，请手动选择', false));
@@ -597,7 +615,7 @@ function copyVersion() {
 const DEPLOY_READY = false; // 后端自动部署端点尚未接入
 async function deploy() {
   if (!DEPLOY_READY) {
-    toast('一键部署后端待接入（需在网关实现 /api/t4data/deploy）', false);
+    toast('版本更新自动部署待接入（需在网关实现 /api/t4data/deploy，且数据湖 + 网关需配套发布）', false);
     return;
   }
   if (!confirm('确认从当前代码 HEAD 触发重新部署？部署期间服务可能短暂不可用。')) return;

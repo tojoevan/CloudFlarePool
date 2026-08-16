@@ -42,6 +42,15 @@
       <!-- 概览 -->
       <div class="panel" id="panel-overview">
         <div id="tenant" class="tenant hidden"></div>
+        <div class="versions" id="versions">
+          <div class="v-title">版本矩阵</div>
+          <div class="v-grid">
+            <div class="v-cell"><span>小程序</span><b id="ver-mp">-</b></div>
+            <div class="v-cell"><span>网关</span><b id="ver-gw2">-</b></div>
+            <div class="v-cell"><span>数据湖</span><b id="ver-dl2">-</b></div>
+            <div class="v-cell"><span>前端 SPA</span><b id="ver-sp2">v0.0.1</b></div>
+          </div>
+        </div>
         <div id="cards" class="cards"></div>
         <p class="foot">只读看板 · 数据湖实时统计</p>
       </div>
@@ -148,10 +157,12 @@
     </section>
     <footer class="footer">
       <span class="f-brand">微家事 · 管理后台</span>
-      <button class="f-ver" id="ver-copy" type="button" title="点击复制版本号（前端语义版本.后端部署 HEAD）">
-        <span id="ver-full">v0.0.1.4471e45</span>
+      <button class="f-ver" id="ver-copy" type="button" title="点击复制版本矩阵（前端 · 网关 · 数据湖）">
+        <span class="f-chip"><i>前端</i><b id="ver-front">v0.0.1</b></span>
+        <span class="f-chip"><i>网关</i><b id="ver-gw">-</b></span>
+        <span class="f-chip"><i>数据湖</i><b id="ver-dl">-</b></span>
       </button>
-      <button class="f-deploy" id="deploy-btn" type="button" title="从当前代码 HEAD 触发重新部署">⟳ 重新部署</button>
+      <button class="f-deploy" id="deploy-btn" type="button" title="数据湖 + 网关需配套发布；自动部署待接入">⟳ 版本更新</button>
     </footer>
   </div>
   <div id="toast" class="toast hidden"></div>

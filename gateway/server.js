@@ -1,6 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { loadDotEnv } from './lib/dotenv.js';
@@ -26,9 +27,18 @@ const CFG = {
   // unescape here. Empty = don't issue JWT (legacy X-Sync-Key proxy only).
   jwtPrivateKey: (process.env.JWT_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
   sessionTtl: Number(process.env.SESSION_TTL || 2592000),
+  // 小程序版本：独立仓库 jiashiben/weijiashi，由服务器 .env 维护（每次发版更新）
+  miniappVersion: process.env.MINIAPP_VERSION || null,
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// 网关自身部署 HEAD：优先环境变量 GATEWAY_GIT_HEAD，其次部署时由 agent 写入的 version.json
+// （网关目录经 scp 上服务器、非 git 仓库，故部署时把当前 commit 写入 version.json 随包带上）
+let GATEWAY_GIT = process.env.GATEWAY_GIT_HEAD || null;
+if (!GATEWAY_GIT) {
+  try { GATEWAY_GIT = JSON.parse(readFileSync(join(__dirname, 'version.json'), 'utf8')).git || null; } catch {}
+}
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.txt': 'text/plain' };
 
 function sendJson(res, status, obj) {
@@ -161,8 +171,11 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, {
         name: 'cloudflarepool-gateway',
         status: 'ok',
-        git: backend?.git ?? null,
+        git: backend?.git ?? null, // 向后兼容：保持为数据湖 HEAD
+        gatewayGit: GATEWAY_GIT,
+        dataLakeGit: backend?.git ?? null,
         region: backend?.region ?? null,
+        miniappVersion: CFG.miniappVersion,
       });
       return;
     }

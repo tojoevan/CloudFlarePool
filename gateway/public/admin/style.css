@@ -60,7 +60,28 @@ html, body {
   transition: border-color 0.15s ease, color 0.15s ease;
 }
 .f-ver:hover { border-color: var(--brand); color: var(--brand); }
-.f-ver #ver-full { color: var(--ink); font-weight: 600; }
+.f-ver .f-chip { display: inline-flex; align-items: baseline; gap: 4px; }
+.f-ver .f-chip i { font-style: normal; font-size: 11px; color: var(--muted); }
+.f-ver .f-chip b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.f-ver .f-chip b.warn { color: var(--danger); }
+.f-deploy.warn { color: var(--danger); border-color: #e8c4b8; }
+.f-deploy.warn:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+/* 概览版本矩阵 */
+.versions {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: #fbfcfb;
+}
+.v-title { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
+.v-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; }
+.v-cell { display: flex; align-items: baseline; justify-content: space-between; font-size: 13px; }
+.v-cell span { color: var(--muted); }
+.v-cell b { font-weight: 600; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.v-cell b.warn { color: var(--danger); }
+@media (min-width: 720px) { .v-grid { grid-template-columns: repeat(4, 1fr); } }
 .f-deploy {
   display: inline-flex;
   align-items: center;
