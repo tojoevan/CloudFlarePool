@@ -38,7 +38,23 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // version.json（网关目录经 scp 上服务器、非 git 仓库，故部署时把当前 commit 写入
 // version.json 随包带上）。采用**懒读**：每次健康检查都实时读 version.json，以便
 // 一键部署脚本重写该文件后无需重启网关即显新 HEAD。
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.txt': 'text/plain' };
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css',
+  '.js': 'text/javascript',
+  '.txt': 'text/plain',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+};
 
 function readGatewayGit() {
   if (process.env.GATEWAY_GIT_HEAD) return process.env.GATEWAY_GIT_HEAD;
