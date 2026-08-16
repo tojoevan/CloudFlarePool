@@ -36,7 +36,6 @@ function showMain() {
   $('#main').classList.remove('hidden');
   setDeployEnabled(true);
   loadStats();
-  renderDeployHistory();
 }
 
 async function api(path, opts = {}) {
@@ -536,13 +535,10 @@ async function changePassword(e) {
 }
 
 // ===== 标签切换 =====
-const NAV_LABELS = { overview: '概览', deploy: '版本更新', data: '数据统计', users: '用户账号', keys: '服务密钥', security: '系统设置', audit: '审计日志' };
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.panel').forEach((p) => p.classList.add('hidden'));
   $('#panel-' + name).classList.remove('hidden');
-  const crumb = $('#crumb');
-  if (crumb) crumb.textContent = NAV_LABELS[name] || name;
   if (name === 'data') { dataHead(); loadData(); }
   if (name === 'users') loadUsers();
   if (name === 'keys') { $('#key-secret').classList.add('hidden'); loadKeys(); }
@@ -568,10 +564,7 @@ $('#key-secret-copy').addEventListener('click', copySecret);
 $('#pw-form').addEventListener('submit', changePassword);
 $('#ver-copy').addEventListener('click', copyVersion);
 $('#deploy-btn').addEventListener('click', deploy);
-function closeDeployOverlay() { $('#deploy-overlay').classList.add('hidden'); }
-$('#deploy-close').addEventListener('click', closeDeployOverlay);
-$('#deploy-mask').addEventListener('click', closeDeployOverlay);
-$('#deploy-close-foot').addEventListener('click', closeDeployOverlay);
+$('#deploy-close').addEventListener('click', () => $('#deploy-overlay').classList.add('hidden'));
 
 // 数据浏览器事件
 $('#data-table').addEventListener('change', (e) => {
@@ -642,35 +635,8 @@ function renderDeployOverlay(task) {
     : task.status === 'success' ? '✓ 部署成功'
     : '✗ 部署失败（退出码 ' + (task.exitCode ?? '?') + '）';
   $('#deploy-status').className = 'overlay-status ' + task.status;
-  const dot = $('#deploy-dot');
-  if (dot) dot.className = 'status-dot ' + task.status;
   $('#deploy-log').textContent = (task.log || []).join('\n');
   $('#deploy-log').scrollTop = $('#deploy-log').scrollHeight;
-}
-
-/* ===== 部署历史（本地持久化，最近 20 条） ===== */
-const DEPLOY_HISTORY_KEY = 'weijiashi_deploy_history';
-function loadDeployHistory() {
-  try { return JSON.parse(localStorage.getItem(DEPLOY_HISTORY_KEY) || '[]'); } catch { return []; }
-}
-function pushDeployHistory(entry) {
-  const list = loadDeployHistory();
-  list.unshift(entry);
-  if (list.length > 20) list.length = 20;
-  try { localStorage.setItem(DEPLOY_HISTORY_KEY, JSON.stringify(list)); } catch {}
-  renderDeployHistory();
-}
-function renderDeployHistory() {
-  const box = $('#deploy-history');
-  if (!box) return;
-  const list = loadDeployHistory();
-  if (!list.length) { box.innerHTML = '<p class="empty">暂无部署记录</p>'; return; }
-  box.innerHTML = list.map((h) => {
-    const dot = h.status === 'success' ? 'ok' : h.status === 'failed' ? 'failed' : 'running';
-    const bad = h.exitCode != null && h.exitCode !== 0;
-    const meta = bad ? '退出码 ' + h.exitCode : (h.version ? '发布 ' + h.version : '已发布');
-    return `<div class="dh-row"><span class="dh-dot ${dot}"></span><span class="dh-time">${fmtTime(h.time)}</span><span class="dh-meta${bad ? ' warn' : ''}">${meta}</span></div>`;
-  }).join('');
 }
 
 async function pollDeploy(taskId) {
@@ -683,7 +649,6 @@ async function pollDeploy(taskId) {
       $('#deploy-title').textContent = task.status === 'success' ? '部署完成' : '部署失败';
       $('#deploy-btn').disabled = false; // 部署结束才解禁按钮，防止并发触发
       loadVersion(); // 刷新版本矩阵
-      pushDeployHistory({ time: Date.now(), status: task.status, exitCode: task.exitCode ?? null, version: $('#ver-gw').textContent });
       toast(task.status === 'success' ? '部署成功' : '部署失败', task.status === 'success');
     }
   } catch (err) {
