@@ -9,3 +9,6 @@ node_modules/
 coverage/
 dist/
 .wrangler.state/
+
+# 数据湖备份（含真实数据，勿入库）
+backups/

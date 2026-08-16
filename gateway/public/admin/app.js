@@ -399,6 +399,48 @@ async function delRow(id) {
   }
 }
 
+// ===== 数据导出（CSV / JSON）=====
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function rowsToCsv(rows) {
+  const cols = DATA_TABLES[dataState.table].cols.map(([k]) => k);
+  const head = cols.join(',');
+  const body = rows.map((r) => cols.map((k) => csvCell(r[k])).join(',')).join('\n');
+  return head + '\n' + body;
+}
+
+async function exportData(fmt) {
+  try {
+    const params = new URLSearchParams();
+    if (dataState.q) params.set('q', dataState.q);
+    const d = await api(`/api/t4data/rows/${dataState.table}/export?${params.toString()}`);
+    if (!d.rows.length) { toast('无数据可导出', false); return; }
+    const date = new Date().toISOString().slice(0, 10);
+    if (fmt === 'json') {
+      downloadBlob(JSON.stringify(d.rows, null, 2), `${dataState.table}-${date}.json`, 'application/json');
+    } else {
+      // BOM 前缀保证 Excel 正确识别 UTF-8 中文
+      downloadBlob('\ufeff' + rowsToCsv(d.rows), `${dataState.table}-${date}.csv`, 'text/csv;charset=utf-8');
+    }
+    toast(`已导出 ${d.rows.length} 条${d.truncated ? '（超过上限已截断）' : ''}`);
+  } catch (err) {
+    toast(err.message, false);
+  }
+}
+
 // ===== 审计日志 =====
 const AUDIT_LABELS = {
   'password.change': '改密',
@@ -522,6 +564,8 @@ $('#data-table').addEventListener('change', (e) => {
 $('#data-search').addEventListener('click', () => { dataState.q = $('#data-q').value.trim(); dataState.offset = 0; loadData(); });
 $('#data-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { dataState.q = $('#data-q').value.trim(); dataState.offset = 0; loadData(); } });
 $('#data-refresh').addEventListener('click', () => { dataState.offset = 0; loadData(); });
+$('#data-export-csv').addEventListener('click', () => exportData('csv'));
+$('#data-export-json').addEventListener('click', () => exportData('json'));
 
 // 审计日志事件
 $('#audit-action').addEventListener('change', (e) => { auditState.action = e.target.value; auditState.offset = 0; loadAudit(); });

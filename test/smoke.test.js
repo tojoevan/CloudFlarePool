@@ -648,6 +648,13 @@ test('Phase3: T4 data browser lists, searches, edits, deletes own-tenant rows', 
   assert.equal(r.status, 200);
   assert.ok(r.body.rows.some((x) => x.id === 'db1'), 'search must find the row');
 
+  // export (respects q filter + tenant scope)
+  r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/todos/export?q=browse', { method: 'GET', headers: hdr }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.count, 1, 'export must respect q filter');
+  assert.equal(r.body.rows[0].id, 'db1');
+  assert.equal(r.body.truncated, false);
+
   // unknown table -> 404
   r = await jres(await mf.dispatchFetch(BASE + '/admin/rows/nope', { method: 'GET', headers: hdr }));
   assert.equal(r.status, 404, 'unknown table must 404 (allowlist)');

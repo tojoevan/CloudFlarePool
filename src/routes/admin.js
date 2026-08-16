@@ -384,6 +384,36 @@ adminRoute.get('/rows/:table', async (c) => {
   return c.json({ table: c.req.param('table'), label: meta.label, rows, total: totalRow?.n || 0, limit, offset });
 });
 
+// 导出（JSON，一次返回当前过滤条件下全部行，上限 10000 防超限）。注册在
+// /rows/:table/:id 之前，避免 "export" 被当作 id 匹配。
+adminRoute.get('/rows/:table/export', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const meta = ROW_TABLES[c.req.param('table')];
+  if (!meta) return c.json({ error: 'unknown table' }, 404);
+
+  const db = c.env.DB;
+  const { where, params } = rowWhere(c, meta);
+  const { results } = await db
+    .prepare(`SELECT * FROM ${c.req.param('table')} WHERE ${where} ORDER BY updated_at DESC LIMIT 10000`)
+    .bind(...params)
+    .all();
+
+  const rows = (results || []).map((r) => {
+    const o = {};
+    for (const col of meta.cols) o[col] = meta.jsonCols.includes(col) ? parseAdminJson(r[col]) : r[col];
+    return o;
+  });
+  return c.json({
+    table: c.req.param('table'),
+    label: meta.label,
+    count: rows.length,
+    truncated: rows.length >= 10000,
+    rows,
+  });
+});
+
 adminRoute.get('/rows/:table/:id', async (c) => {
   const deny = requireAdmin(c);
   if (deny) return deny;
