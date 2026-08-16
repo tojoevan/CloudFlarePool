@@ -5,22 +5,45 @@
 （以下为面向终端用户的文案，直接整段复制到 mp.weixin.qq.com 上传页的"版本说明"框，不含内部技术内容）
 
 微家事 0.1.6 更新内容：
+· 修复个人/家庭空间切换时内容未隔离的问题，切换空间后列表与统计现在会正确过滤
 · 设计规范升级：统一全局配色、字号、间距与圆角标准，界面更协调一致
 · 家庭页细节优化：修复成员头像底色与邀请卡片边框的显示样式
 · 状态展示完善：补充列表为空、内容加载中的统一提示样式
-· 体验稳定性：收敛一处潜在样式冲突，提升各页面渲染稳定性
+· 体验稳定性：收敛潜在样式冲突，新增回归测试防止同类问题复发
 
 
-【发布前门禁清单】（内部，不进版本说明）
-- [ ] Gate0：确认无 known-broken 接口
-- [ ] lint --strict 全绿（family.wxss 两处修复后，regression 红项转绿）
-- [ ] 真机核心页目检通过（列表 / 编辑 / 家庭页）
-- [ ] 设计系统 6 条清理落地 + family.wxss 两处 bug 修复
+【发布前门禁清单】（内部，本次已全部通过）
+- [x] Gate0：确认无 known-broken 接口
+- [x] lint --strict 全绿（同名类扫描 21 处，高危 0 处）
+- [x] npm test（regression-check.mjs）全绿（28 条断言通过）
+- [x] 真机核心页目检通过（今天 / 事务 / 档案 / 我的 / 家庭 / 编辑）
+- [x] 空间隔离：个人/家庭切换后 today、archive、mine 三页列表与统计正确过滤
+
 
 【本版技术变更】（内部，不进版本说明）
-1. 设计系统 Token 补全：app.wxss 新增 --space-1..6 + --page-pad、--text-xs..xxl
-2. 修复 family.wxss：.invite-banner 引用未定义 --brand-border；.avatar.family fallback #7BA7BC→#7A8471
-3. 收敛各页魔数（40rpx→--page-pad、28rpx→--text-base）
-4. 统一 .empty 全局空态类
-5. 补充 disabled / loading 组件状态
-6. lint + regression 复跑全绿（regression 现报红 2 项需在 0.1.6 修复后转绿）
+1. 功能修复
+   - 新增 utils/space.js：统一导出 filterBySpace / inSpace，定义家庭空间 = dot==='family' || shared===true
+   - pages/today/today.js：onShow / setSpace 接入空间过滤，移除早期误加的 computeSummary
+   - pages/archive/archive.js：缓存 _allItems 全量，加载与切换空间后按空间过滤
+   - pages/mine/mine.js：todo / archive / record 计数按 inSpace 统计
+
+2. 视觉与样式
+   - pages/today/today.wxml：顶部结构重构为 .home-header，移除右上角 favicon（被小程序胶囊遮挡）
+   - pages/today/today.wxss（新建）：页面作用域 --brand:#FF7A45 局部换肤，新增 .home-sub 样式
+   - app.wxss：补全 --brand-border token，修复 family.wxss 引用未定义变量
+   - pages/family/family.wxss：.avatar.family fallback #7BA7BC → #7A8471
+   - .sub → .home-sub 重命名，避免与全局/其他页面类名冲突（strict lint 全绿）
+
+3. 测试与门禁
+   - scripts/regression-check.mjs 新增 13 条空间过滤功能断言（覆盖 filterBySpace / inSpace 边界）
+   - package.json version 0.1.5 → 0.1.6
+   - npm run preflight（lint + test）全绿
+
+4. 网关侧配套
+   - 服务器 /www/wwwroot/home.inkspcl.com/.env 追加 MINIAPP_VERSION=0.1.6
+   - 需宝塔面板重启网关，使版本矩阵读取到 0.1.6
+
+
+【关联提交】
+- jiashiben（小程序）：2dbacea + 94f0c8f（已推送 origin/main）
+- cloudflarepool（后台/网关）：e593aae 及后续网关同步（已推送）
