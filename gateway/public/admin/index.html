@@ -162,9 +162,22 @@
         <span class="f-chip"><i>网关</i><b id="ver-gw">-</b></span>
         <span class="f-chip"><i>数据湖</i><b id="ver-dl">-</b></span>
       </button>
-      <button class="f-deploy" id="deploy-btn" type="button" title="数据湖 + 网关需配套发布；自动部署待接入">⟳ 版本更新</button>
+      <button class="f-deploy" id="deploy-btn" type="button" title="一键部署：拉取最新代码，数据湖 + SPA 配套发布（platform-admin 专属）">⟳ 版本更新</button>
     </footer>
   </div>
+
+  <!-- 部署进度浮层 -->
+  <div id="deploy-overlay" class="overlay hidden">
+    <div class="overlay-box">
+      <div class="overlay-head">
+        <span id="deploy-title">部署进行中…</span>
+        <button class="ghost sm" id="deploy-close" type="button">关闭</button>
+      </div>
+      <div class="overlay-status" id="deploy-status">初始化…</div>
+      <pre class="overlay-log" id="deploy-log"></pre>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
   <script src="/admin/app.js"></script>
 </body>

@@ -554,6 +554,7 @@ $('#key-secret-copy').addEventListener('click', copySecret);
 $('#pw-form').addEventListener('submit', changePassword);
 $('#ver-copy').addEventListener('click', copyVersion);
 $('#deploy-btn').addEventListener('click', deploy);
+$('#deploy-close').addEventListener('click', () => $('#deploy-overlay').classList.add('hidden'));
 
 // 数据浏览器事件
 $('#data-table').addEventListener('change', (e) => {
@@ -611,26 +612,57 @@ function copyVersion() {
     .catch(() => toast('复制失败，请手动选择', false));
 }
 
-// 一键重新部署：需网关实现 /api/t4data/deploy 后才真正生效
-const DEPLOY_READY = false; // 后端自动部署端点尚未接入
-async function deploy() {
-  if (!DEPLOY_READY) {
-    toast('版本更新自动部署待接入（需在网关实现 /api/t4data/deploy，且数据湖 + 网关需配套发布）', false);
-    return;
+// 一键版本更新（异步轮询）：调 /api/t4data/deploy 触发，轮询
+// /api/t4data/deploy/status/:id 展示实时日志，直到 success/failed。
+const DEPLOY_READY = true;
+let deployTimer = null;
+
+function renderDeployOverlay(task) {
+  const ov = $('#deploy-overlay');
+  ov.classList.remove('hidden');
+  $('#deploy-status').textContent =
+    task.status === 'running' ? '● 进行中…'
+    : task.status === 'success' ? '✓ 部署成功'
+    : '✗ 部署失败（退出码 ' + (task.exitCode ?? '?') + '）';
+  $('#deploy-status').className = 'overlay-status ' + task.status;
+  $('#deploy-log').textContent = (task.log || []).join('\n');
+  $('#deploy-log').scrollTop = $('#deploy-log').scrollHeight;
+}
+
+async function pollDeploy(taskId) {
+  try {
+    const task = await api(`/api/t4data/deploy/status/${encodeURIComponent(taskId)}`);
+    renderDeployOverlay(task);
+    if (task.status === 'running') {
+      deployTimer = setTimeout(() => pollDeploy(taskId), 2000);
+    } else {
+      $('#deploy-title').textContent = task.status === 'success' ? '部署完成' : '部署失败';
+      loadVersion(); // 刷新版本矩阵
+    }
+  } catch (err) {
+    $('#deploy-status').textContent = '✗ 查询进度失败：' + err.message;
+    $('#deploy-status').className = 'overlay-status failed';
   }
-  if (!confirm('确认从当前代码 HEAD 触发重新部署？部署期间服务可能短暂不可用。')) return;
+}
+
+async function deploy() {
+  if (!confirm('确认从当前代码 HEAD 触发重新部署？将拉取最新代码并配套发布数据湖 + SPA。')) return;
   const btn = $('#deploy-btn');
-  const old = btn.textContent;
   btn.disabled = true;
-  btn.textContent = '部署中…';
+  $('#deploy-title').textContent = '部署进行中…';
   try {
     const r = await api('/api/t4data/deploy', { method: 'POST' });
-    toast('部署已触发：' + (r.message || '成功'));
+    if (r.taskId) {
+      $('#deploy-overlay').classList.remove('hidden');
+      $('#deploy-log').textContent = '已触发，等待任务启动…';
+      pollDeploy(r.taskId);
+    } else {
+      toast('部署触发：' + (r.message || '已提交'), true);
+    }
   } catch (err) {
     toast('部署失败：' + err.message, false);
   } finally {
     btn.disabled = false;
-    btn.textContent = old;
   }
 }
 

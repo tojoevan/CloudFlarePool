@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { loadDotEnv } from './lib/dotenv.js';
 import { signSession, verifySession, bearerFrom } from './lib/auth.js';
-import { signT1, signT2, signT4 } from './lib/jwt.js';
+import { signT1, signT2, signT4, verifyJwt } from './lib/jwt.js';
+import { startDeploy, getDeployStatus } from './lib/deploy.js';
 
 loadDotEnv();
 
@@ -33,13 +34,20 @@ const CFG = {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// 网关自身部署 HEAD：优先环境变量 GATEWAY_GIT_HEAD，其次部署时由 agent 写入的 version.json
-// （网关目录经 scp 上服务器、非 git 仓库，故部署时把当前 commit 写入 version.json 随包带上）
-let GATEWAY_GIT = process.env.GATEWAY_GIT_HEAD || null;
-if (!GATEWAY_GIT) {
-  try { GATEWAY_GIT = JSON.parse(readFileSync(join(__dirname, 'version.json'), 'utf8')).git || null; } catch {}
-}
+// 网关自身部署 HEAD：优先环境变量 GATEWAY_GIT_HEAD，其次部署时由 agent 写入的
+// version.json（网关目录经 scp 上服务器、非 git 仓库，故部署时把当前 commit 写入
+// version.json 随包带上）。采用**懒读**：每次健康检查都实时读 version.json，以便
+// 一键部署脚本重写该文件后无需重启网关即显新 HEAD。
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.txt': 'text/plain' };
+
+function readGatewayGit() {
+  if (process.env.GATEWAY_GIT_HEAD) return process.env.GATEWAY_GIT_HEAD;
+  try { return JSON.parse(readFileSync(join(__dirname, 'version.json'), 'utf8')).git || null; } catch { return null; }
+}
+
+// 部署限频：每位 platform-admin 每 5 分钟最多触发 1 次（防止误点/滥用）
+const DEPLOY_INTERVAL_MS = 5 * 60 * 1000;
+const deployRate = new Map();
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -172,7 +180,7 @@ const server = http.createServer(async (req, res) => {
         name: 'cloudflarepool-gateway',
         status: 'ok',
         git: backend?.git ?? null, // 向后兼容：保持为数据湖 HEAD
-        gatewayGit: GATEWAY_GIT,
+        gatewayGit: readGatewayGit(),
         dataLakeGit: backend?.git ?? null,
         region: backend?.region ?? null,
         miniappVersion: CFG.miniappVersion,
@@ -310,6 +318,54 @@ const server = http.createServer(async (req, res) => {
     // 4c) T4 管理后台通道反代：admin 持 T4 Bearer，原样转发到数据湖 /admin/*
     //     数据湖校验 typ==='admin' 并据 role 返回租户统计；仅放行 typ=admin
     //     （轻量 typ 校验防 T2/T1 透传，密码学验签交给数据湖 dualGuard）
+
+    // 部署状态轮询（必须在 t4data 代理之前匹配，否则会被透传到数据湖）
+    const statusMatch = path.match(/^\/api\/t4data\/deploy\/status\/([\w-]+)$/);
+    if (req.method === 'GET' && statusMatch) {
+      const task = getDeployStatus(statusMatch[1]);
+      if (!task) { sendJson(res, 404, { error: 'task not found (gateway may have restarted)' }); return; }
+      sendJson(res, 200, task);
+      return;
+    }
+
+    // 一键部署（仅 platform-admin 可触发）：验签 T4 → 校验 platform 角色 →
+    // 限频 → 异步 spawn 部署脚本 → 返回 taskId。高权限操作，务必 crypto 验签。
+    if (req.method === 'POST' && path === '/api/t4data/deploy') {
+      if (!CFG.jwtPrivateKey) { sendJson(res, 500, { error: 'gateway JWT not configured' }); return; }
+      const token = bearerFrom(req);
+      if (!token) { sendJson(res, 401, { error: 'unauthorized: missing bearer' }); return; }
+      let payload;
+      try { payload = verifyJwt(token, CFG.jwtPrivateKey); }
+      catch { sendJson(res, 401, { error: 'invalid or expired token' }); return; }
+      if (payload.typ !== 'admin' || !payload.scp?.includes('admin:platform')) {
+        sendJson(res, 403, { error: 'forbidden: platform-admin only may deploy' });
+        return;
+      }
+      const now = Date.now();
+      const last = deployRate.get(payload.sub) || 0;
+      if (now - last < DEPLOY_INTERVAL_MS) {
+        const retryAfter = Math.ceil((DEPLOY_INTERVAL_MS - (now - last)) / 1000);
+        sendJson(res, 429, { error: 'deploy rate limited, retry later', retryAfter });
+        return;
+      }
+      deployRate.set(payload.sub, now);
+
+      const script = process.env.DEPLOY_SCRIPT || join(process.env.DEPLOY_REPO_DIR || __dirname, 'scripts', 'deploy.sh');
+      let task;
+      try {
+        task = startDeploy({ script, adminId: payload.sub });
+      } catch (e) {
+        sendJson(res, 500, { error: 'failed to start deploy', detail: e.message });
+        return;
+      }
+      // 审计：服务端留痕（部署触发器本身是 gateway 进程内动作，数据湖无对应写入端点，
+      // 故以网关日志形式记录；如需入库可后续为数据湖增加 audit 写入端点）
+      console.log(`[deploy] triggered by admin=${payload.sub} task=${task.id}`);
+
+      sendJson(res, 202, { taskId: task.id, status: task.status, message: '部署已触发，正在异步执行' });
+      return;
+    }
+
     if (path.startsWith('/api/t4data/')) {
       const token = bearerFrom(req);
       if (!token) { sendJson(res, 401, { error: 'unauthorized: missing bearer' }); return; }

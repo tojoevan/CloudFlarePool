@@ -3,7 +3,7 @@
 //
 // Runs in Node.js (the gateway). Uses node:crypto — do NOT import this file
 // from the Workers-runtime data lake.
-import { createHmac, createHash, createPrivateKey, sign as signRaw } from 'node:crypto';
+import { createHmac, createHash, createPrivateKey, createPublicKey, sign as signRaw, verify as verifyRaw } from 'node:crypto';
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 
@@ -100,4 +100,21 @@ export function signT4({ sub, role, appId, tenantId, ttl = 2592000, privateKeyPe
     privateKeyPem,
     { kid }
   );
+}
+
+// 验证由本网关签发的 JWT（T2/T4 等）。网关持有私钥，可从中派生公钥做
+// 密码学验签——无需额外持有公钥。用于高权限端点（如部署）的鉴权。
+// 返回 decoded payload；签名无效或过期则抛错。
+export function verifyJwt(token, privateKeyPem) {
+  const parts = String(token).split('.');
+  if (parts.length !== 3) throw new Error('malformed token');
+  const [h, p, s] = parts;
+  const signingInput = `${h}.${p}`;
+  const privateKey = createPrivateKey(privateKeyPem);
+  const publicKey = createPublicKey(privateKey);
+  const ok = verifyRaw(null, Buffer.from(signingInput), publicKey, Buffer.from(s, 'base64url'));
+  if (!ok) throw new Error('invalid signature');
+  const payload = JSON.parse(Buffer.from(p, 'base64url').toString('utf8'));
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error('token expired');
+  return payload;
 }

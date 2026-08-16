@@ -3,6 +3,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { writeFileSync } from 'node:fs';
+import { generateKeyPairSync } from 'node:crypto';
+import { signT4 } from '../lib/jwt.js';
+
+// 测试用临时假部署脚本：仅回显并退出 0，避免测试真跑 wrangler/git
+writeFileSync('/tmp/fake-deploy.sh', '#!/bin/bash\necho "[fake-deploy] ok"; exit 0\n');
+const DEPLOY_TEST_SCRIPT = '/tmp/fake-deploy.sh';
 
 // ---- 1) mock 数据湖：记录收到的请求并回显 ----
 let lastLakeReq = null;
@@ -72,6 +79,10 @@ test('gateway: login + proxy injects headers & tenant path; rejects bad token', 
   process.env.SESSION_SECRET = 'sess-secret';
   process.env.TENANT_ID = 'jiashiben';
   process.env.PORT = '0';
+  // 部署端点需 Ed25519 私钥验签（CFG 在模块加载时读取）
+  const { privateKey } = generateKeyPairSync('ed25519');
+  process.env.JWT_PRIVATE_KEY = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  process.env.DEPLOY_SCRIPT = DEPLOY_TEST_SCRIPT;
 
   const { start } = await import('../server.js');
   const gw = await start(0);
@@ -110,6 +121,28 @@ test('gateway: login + proxy injects headers & tenant path; rejects bad token', 
     // 假 token -> 401
     const badTok = await get(gwPort, '/api/data/todos', { Authorization: 'Bearer not.a.token' });
     assert.equal(badTok.status, 401);
+
+    // ---- 部署端点（platform-admin 专属）----
+    const t4plat = signT4({ sub: 'admin-plat', role: 'platform', privateKeyPem: process.env.JWT_PRIVATE_KEY });
+    const t4tenant = signT4({ sub: 'admin-tenant', role: 'tenant', privateKeyPem: process.env.JWT_PRIVATE_KEY });
+
+    // tenant 角色 -> 403（禁止部署）
+    const depTenant = await post(gwPort, '/api/t4data/deploy', {}, { Authorization: `Bearer ${t4tenant}` });
+    assert.equal(depTenant.status, 403, 'tenant T4 不可触发部署');
+
+    // platform 角色 -> 202（异步触发，返回 taskId）
+    const depPlat = await post(gwPort, '/api/t4data/deploy', {}, { Authorization: `Bearer ${t4plat}` });
+    assert.equal(depPlat.status, 202, 'platform T4 应触发部署');
+    const { taskId } = JSON.parse(depPlat.body);
+    assert.ok(taskId, '应返回 taskId');
+
+    // 轮询状态 -> 200
+    const st = await get(gwPort, `/api/t4data/deploy/status/${taskId}`);
+    assert.equal(st.status, 200, '状态轮询应返回 200');
+
+    // 同 admin 5 分钟内二次触发 -> 429（限频）
+    const depAgain = await post(gwPort, '/api/t4data/deploy', {}, { Authorization: `Bearer ${t4plat}` });
+    assert.equal(depAgain.status, 429, '同 admin 限频应 429');
   } finally {
     gw.close();
     lake.close();
