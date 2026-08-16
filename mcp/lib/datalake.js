@@ -2,10 +2,9 @@
 //
 // Every call mints a short-lived HS256 service token (kid + secret supplied
 // by the operator). The data lake checks: signature (HMAC-SHA256), exp,
-// iss/aud, and — because this key is tenant_bound — that the URL tenant
-// equals the key's tenant_id. No scope enforcement on the lake side yet
-// (MVP), so the `scope` array here is documentation of intent and matches
-// the key's stored scope.
+// iss/aud, the key's DB-scope (data:read/data:write enforced per HTTP method,
+// see src/routes/data.js), and — because this key is tenant_bound — that the
+// URL tenant equals the key's tenant_id.
 
 import { signServiceToken } from './token.js';
 
