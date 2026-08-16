@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 一键部署脚本（经网关 /api/t4data/deploy 异步调用）。
 #
-# 职责：拉取最新代码 → 部署数据湖（wrangler）→ 同步 SPA 静态资源 → 重写 version.json。
+# 职责：拉取最新代码 → 安装运行时依赖 → 部署数据湖（wrangler）→ 同步 SPA 静态资源 → 重写 version.json。
 # 设计要点：
 #   - 数据湖与 SPA 是独立部署单元，本脚本一次发齐（网关↔数据湖配套）。
 #   - version.json 由本脚本重写；网关 /api/health 懒读它，故部署后**无需重启网关**
@@ -31,6 +31,13 @@ echo "[deploy] HEAD=$HEAD"
 printf '{"git":"%s"}\n' "$HEAD" > "$WEB_ROOT/version.json"
 printf '{"git":"%s"}\n' "$HEAD" > gateway/version.json
 echo "[deploy] wrote version.json (git=$HEAD) -> $WEB_ROOT/version.json"
+
+# 安装运行时依赖（node_modules 不入 git，clone 后需补装，否则 wrangler 打包会报
+# "Could not resolve ..."）。仅装 production 依赖（hono），轻量且足够打包 Worker；
+# 限制旧空间上限，避免低内存服务器 OOM。
+echo "[deploy] install runtime deps (npm ci --omit=dev)..."
+NODE_OPTIONS="--max-old-space-size=384" npm ci --omit=dev --no-audit --no-fund
+echo "[deploy] deps installed"
 
 # 部署数据湖（带上 GIT_HEAD，便于后台核对部署版本）
 echo "[deploy] wrangler deploy datalake (GIT_HEAD=$HEAD)..."
