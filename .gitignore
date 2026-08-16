@@ -1,6 +1,7 @@
 node_modules/
 .wrangler/
 .npm-cache/
+.deploy-state/
 .tmp/
 .dev.vars
 *.db

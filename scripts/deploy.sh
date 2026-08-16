@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 一键部署脚本（经网关 /api/t4data/deploy 异步调用）。
 #
-# 职责：拉取最新代码 → 安装运行时依赖 → 部署数据湖（wrangler）→ 同步 SPA 静态资源 → 重写 version.json。
+# 职责：拉取最新代码 → 按需安装运行时依赖（锁文件变化时才装） → 部署数据湖（wrangler）→ 同步 SPA 静态资源 → 重写 version.json。
 # 设计要点：
 #   - 数据湖与 SPA 是独立部署单元，本脚本一次发齐（网关↔数据湖配套）。
 #   - version.json 由本脚本重写；网关 /api/health 懒读它，故部署后**无需重启网关**
@@ -32,17 +32,27 @@ printf '{"git":"%s"}\n' "$HEAD" > "$WEB_ROOT/version.json"
 printf '{"git":"%s"}\n' "$HEAD" > gateway/version.json
 echo "[deploy] wrote version.json (git=$HEAD) -> $WEB_ROOT/version.json"
 
-# 安装运行时依赖（node_modules 不入 git，clone 后需补装，否则 wrangler 打包会报
-# "Could not resolve ..."）。仅装 production 依赖（hono），轻量且足够打包 Worker；
-# 限制旧空间上限，避免低内存服务器 OOM。
-#
-# 缓存目录重定向到仓库内（REPO_DIR/.npm-cache）：系统 npm 缓存 /www/server/nodejs/cache
-# 是 root 属主，网关以 www 身份运行时无写权限（EACCES）。仓库整体已 chown www，故
-# 用仓库内缓存既绕开系统缓存权限问题，又随仓库迁移、无需服务器额外改权限。
-echo "[deploy] install runtime deps (npm ci --omit=dev)..."
-export npm_config_cache="$REPO_DIR/.npm-cache"
-NODE_OPTIONS="--max-old-space-size=384" npm ci --omit=dev --no-audit --no-fund --cache "$REPO_DIR/.npm-cache"
-echo "[deploy] deps installed"
+# 仅在依赖锁文件变化（或首次/依赖缺失）时才重装依赖，避免每次部署都跑 npm ci：
+#   - node_modules 不入 git，clone 后首装一次即可；之后锁文件不变则复用，显著加快部署。
+#   - 锁文件指纹存于仓库内 .deploy-state/package-lock.sha256（已 gitignore），与仓库
+#     同属主（www），可安全读写、随仓库迁移。
+#   - 兜底：若 node_modules/hono 不存在（被清理/全新克隆），即使指纹匹配也强制重装。
+#   - npm 缓存重定向到仓库内（REPO_DIR/.npm-cache）：系统 npm 缓存 /www/server/nodejs/cache
+#     是 root 属主，网关以 www 身份运行时无写权限（EACCES），已上轮修复为仓库内缓存。
+DEPLOY_STATE_DIR="$REPO_DIR/.deploy-state"
+LOCK_HASH_FILE="$DEPLOY_STATE_DIR/package-lock.sha256"
+mkdir -p "$DEPLOY_STATE_DIR"
+CURRENT_LOCK_HASH=$(sha256sum "$REPO_DIR/package-lock.json" | awk '{print $1}')
+LAST_LOCK_HASH=$(cat "$LOCK_HASH_FILE" 2>/dev/null || echo "")
+if [ "$CURRENT_LOCK_HASH" != "$LAST_LOCK_HASH" ] || [ ! -d "$REPO_DIR/node_modules/hono" ]; then
+  export npm_config_cache="$REPO_DIR/.npm-cache"
+  echo "[deploy] package-lock.json changed or deps missing -> install runtime deps (npm ci --omit=dev)..."
+  NODE_OPTIONS="--max-old-space-size=384" npm ci --omit=dev --no-audit --no-fund --cache "$REPO_DIR/.npm-cache"
+  echo "$CURRENT_LOCK_HASH" > "$LOCK_HASH_FILE"
+  echo "[deploy] deps installed"
+else
+  echo "[deploy] package-lock.json unchanged & node_modules present -> skip npm ci (fast path)"
+fi
 
 # 部署数据湖（带上 GIT_HEAD，便于后台核对部署版本）
 echo "[deploy] wrangler deploy datalake (GIT_HEAD=$HEAD)..."
