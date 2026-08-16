@@ -35,8 +35,13 @@ echo "[deploy] wrote version.json (git=$HEAD) -> $WEB_ROOT/version.json"
 # 安装运行时依赖（node_modules 不入 git，clone 后需补装，否则 wrangler 打包会报
 # "Could not resolve ..."）。仅装 production 依赖（hono），轻量且足够打包 Worker；
 # 限制旧空间上限，避免低内存服务器 OOM。
+#
+# 缓存目录重定向到仓库内（REPO_DIR/.npm-cache）：系统 npm 缓存 /www/server/nodejs/cache
+# 是 root 属主，网关以 www 身份运行时无写权限（EACCES）。仓库整体已 chown www，故
+# 用仓库内缓存既绕开系统缓存权限问题，又随仓库迁移、无需服务器额外改权限。
 echo "[deploy] install runtime deps (npm ci --omit=dev)..."
-NODE_OPTIONS="--max-old-space-size=384" npm ci --omit=dev --no-audit --no-fund
+export npm_config_cache="$REPO_DIR/.npm-cache"
+NODE_OPTIONS="--max-old-space-size=384" npm ci --omit=dev --no-audit --no-fund --cache "$REPO_DIR/.npm-cache"
 echo "[deploy] deps installed"
 
 # 部署数据湖（带上 GIT_HEAD，便于后台核对部署版本）
