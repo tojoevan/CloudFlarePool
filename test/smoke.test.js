@@ -45,6 +45,9 @@ async function jres(r) {
 test.before(async () => {
   const r = await jres(await req('POST', '/__setup'));
   assert.equal(r.status, 200, 'schema setup should succeed');
+  // 限流计数跨测试运行可能残留（Miniflare 本地 D1 持久化），先清空保证确定性
+  const db = await mf.getD1Database('DB');
+  await db.prepare('DELETE FROM rate_limits').run();
 });
 
 test('public endpoints need no key', async () => {
@@ -742,6 +745,63 @@ test('Phase3: T4 audit log records mutating actions + role-scoped read', async (
   assert.equal(r.status, 403, 'non-admin must not read audit log');
 
   await db.prepare('DELETE FROM users WHERE id=?').bind('u_aud_1').run();
+});
+
+// ===== Rate limiting (D1-backed fixed window) =====
+test('RateLimit: auth verify 5/min per email -> 6th is 429, other email unaffected', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  const db = await mf.getD1Database('DB');
+  await db
+    .prepare("INSERT INTO users (id, tenant_id, email, status, provider, created_at) VALUES ('rl1','weijiashi','rl@weijiashi.app','active','native',?)")
+    .bind(Date.now())
+    .run();
+
+  let last;
+  for (let i = 0; i < 6; i++) {
+    const r = await jres(await req('POST', '/internal/account/verify', { body: { email: 'rl@weijiashi.app', password: 'WrongPass1' } }));
+    last = r.status;
+  }
+  assert.equal(last, 429, '6th verify attempt with the same email must be rate limited');
+
+  // 不同邮箱不受影响（未知用户仍 401，而不是 429）
+  const other = await jres(await req('POST', '/internal/account/verify', { body: { email: 'other@weijiashi.app', password: 'x' } }));
+  assert.equal(other.status, 401, 'different email must not be rate limited');
+
+  // X-Sync-Key 数据通道豁免（不受任何 Bearer 限流影响）
+  for (let i = 0; i < 12; i++) {
+    const r = await jres(await req('GET', '/t/weijiashi/todos', { headers: { 'X-User-Id': 'u1' } }));
+    assert.equal(r.status, 200, 'X-Sync-Key channel must stay unlimited');
+  }
+
+  await db.prepare('DELETE FROM users WHERE id=?').bind('rl1').run();
+  await db.prepare('DELETE FROM rate_limits').run();
+});
+
+test('RateLimit: service key over write limit -> 429 (pre-seeded counter)', async () => {
+  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read', 'data:write'] } }));
+  assert.equal(issued.status, 200);
+  const svc = signServiceToken({
+    serviceId: issued.body.id,
+    rawSecret: issued.body.raw_secret,
+    appId: 'jiashiben',
+    scope: ['data:read', 'data:write'],
+  });
+
+  // 预置计数到上限，模拟已达 60 次/分钟
+  const db = await mf.getD1Database('DB');
+  const win = Math.floor(Date.now() / 1000 / 60) * 60;
+  await db.prepare('INSERT INTO rate_limits (bucket_key, window_start, count) VALUES (?, ?, 60)').bind('key:' + issued.body.id, win).run();
+
+  const r = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + svc, 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'rate-limit-e2e' }),
+  });
+  assert.equal(r.status, 429, 'service key over write limit must be 429');
+  const ra = r.headers.get('retry-after');
+  assert.ok(ra && /^\d+$/.test(ra) && Number(ra) >= 1 && Number(ra) <= 60, `429 must carry a valid retry-after (got ${ra})`);
+
+  await db.prepare('DELETE FROM rate_limits WHERE bucket_key = ?').bind('key:' + issued.body.id).run();
 });
 
 // Miniflare keeps a workerd subprocess alive; dispose it so the process

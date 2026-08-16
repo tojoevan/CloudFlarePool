@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { hasScope, resolveApp } from '../lib/auth.js';
+import { rateLimit } from '../lib/ratelimit.js';
 
 // Multi-tenant data API. Mounted at `/t` so paths look like:
 //   /t/:tenant/todos
@@ -27,13 +28,33 @@ const dataRoute = new Hono();
 // account JWTs and T4 admin JWTs carry no `scopes` and are completely
 // unaffected.
 dataRoute.use('*', async (c, next) => {
+  const m = c.req.method;
+  const isWrite = m !== 'GET' && m !== 'HEAD';
+
+  // T3 service-token scope enforcement (closes the design §8 technical debt).
+  // Only `typ=service` tokens carry an explicit scope; enforce at the HTTP-method
+  // level so a leaked read-only key cannot mutate data:
+  //   GET/HEAD      -> requires `data:read`
+  //   POST/PUT/...  -> requires `data:write`
+  // (`data:*` grants both.) The mini-program (X-Sync-Key internal channel), T2
+  // account JWTs and T4 admin JWTs carry no `scopes` and are completely
+  // unaffected.
   if (c.get('userTyp') === 'service') {
-    const m = c.req.method;
-    const required = m === 'GET' || m === 'HEAD' ? 'data:read' : 'data:write';
+    const required = isWrite ? 'data:write' : 'data:read';
     if (!hasScope(c.get('scopes') || [], required)) {
       return c.json({ error: `forbidden: scope '${required}' required for ${m}` }, 403);
     }
+    // 滥用防护：每个服务密钥 读 600/分、写 60/分
+    const rl = await rateLimit(c, `key:${c.get('userId')}`, { limit: isWrite ? 60 : 600 });
+    if (rl) return rl;
+  } else if (c.get('userTyp') === 'account') {
+    // 账号令牌：写 60/分（读不限，读量大）
+    if (isWrite) {
+      const rl = await rateLimit(c, `acct:${c.get('userId')}`, { limit: 60 });
+      if (rl) return rl;
+    }
   }
+  // X-Sync-Key 内部通道（小程序经网关）userTyp 未设置 -> 完全豁免
   await next();
 });
 

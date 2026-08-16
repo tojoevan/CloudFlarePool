@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { clientIp, rateLimit } from '../lib/ratelimit.js';
 
 // Internal account verification endpoints. Reached only through the trusted
 // gateway (X-Sync-Key channel) or an admin JWT — the global dual-mode guard in
@@ -41,10 +42,16 @@ async function pbkdf2Verify(password, stored) {
 }
 
 accountRoute.post('/account/verify', async (c) => {
+  // 防爆破：同一邮箱 5 次/分钟 + 同一来源 IP 30 次/分钟（超出 429）
   const b = await c.req.json().catch(() => ({}));
   if (!b.email || !b.password) return c.json({ error: 'email and password required' }, 400);
+  const email = String(b.email).toLowerCase();
+  const ip = clientIp(c);
+  const rl = (await rateLimit(c, `login:${email}`, { limit: 5 })) || (await rateLimit(c, `ip:${ip}`, { limit: 30 }));
+  if (rl) return rl;
+
   const row = await c.env.DB.prepare('SELECT id, app_id, tenant_id, pwd_hash, status FROM users WHERE email = ?')
-    .bind(b.email)
+    .bind(email)
     .first();
   if (!row || row.status !== 'active') return c.json({ error: 'invalid credentials' }, 401);
   const ok = await pbkdf2Verify(b.password, row.pwd_hash);
@@ -53,10 +60,16 @@ accountRoute.post('/account/verify', async (c) => {
 });
 
 accountRoute.post('/admin/verify', async (c) => {
+  // 防爆破：同一邮箱 5 次/分钟 + 同一来源 IP 30 次/分钟（超出 429）
   const b = await c.req.json().catch(() => ({}));
   if (!b.email || !b.password) return c.json({ error: 'email and password required' }, 400);
+  const email = String(b.email).toLowerCase();
+  const ip = clientIp(c);
+  const rl = (await rateLimit(c, `admin_login:${email}`, { limit: 5 })) || (await rateLimit(c, `ip:${ip}`, { limit: 30 }));
+  if (rl) return rl;
+
   const row = await c.env.DB.prepare('SELECT id, app_id, tenant_id, pwd_hash, role, status FROM admin_accounts WHERE email = ?')
-    .bind(b.email)
+    .bind(email)
     .first();
   if (!row || row.status !== 'active') return c.json({ error: 'invalid credentials' }, 401);
   const ok = await pbkdf2Verify(b.password, row.pwd_hash);

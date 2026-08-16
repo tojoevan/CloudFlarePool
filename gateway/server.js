@@ -202,7 +202,12 @@ const server = http.createServer(async (req, res) => {
           body: JSON.stringify({ email, password }),
         });
         const j = await r.json();
-        if (r.status !== 200) { sendJson(res, r.status === 401 ? 401 : 500, { error: j.error || 'verify failed' }); return; }
+        // 透传 429（数据湖限流）与 401，其余视为上游错误
+        if (r.status !== 200) {
+          const code = r.status === 401 ? 401 : r.status === 429 ? 429 : 500;
+          sendJson(res, code, { error: j.error || 'verify failed' });
+          return;
+        }
         const jwt = CFG.jwtPrivateKey
           ? signT2({ sub: j.user_id, appId: j.app_id, privateKeyPem: CFG.jwtPrivateKey })
           : null;
@@ -230,7 +235,12 @@ const server = http.createServer(async (req, res) => {
           body: JSON.stringify({ email, password }),
         });
         const j = await r.json();
-        if (r.status !== 200) { sendJson(res, r.status === 401 ? 401 : 500, { error: j.error || 'verify failed' }); return; }
+        // 透传 429（数据湖限流）与 401，其余视为上游错误
+        if (r.status !== 200) {
+          const code = r.status === 401 ? 401 : r.status === 429 ? 429 : 500;
+          sendJson(res, code, { error: j.error || 'verify failed' });
+          return;
+        }
         const jwt = CFG.jwtPrivateKey
           ? signT4({ sub: j.id, role: j.role, appId: j.app_id, tenantId: j.tenant_id, privateKeyPem: CFG.jwtPrivateKey })
           : null;

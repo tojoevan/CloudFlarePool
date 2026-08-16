@@ -96,3 +96,11 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
   created_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_audit_tenant ON admin_audit_log(tenant_id, created_at);
+
+-- ===== Rate limiting (fixed-window counter, D1-backed) =====
+CREATE TABLE IF NOT EXISTS rate_limits (
+  bucket_key   TEXT,
+  window_start INTEGER,
+  count        INTEGER,
+  PRIMARY KEY (bucket_key, window_start)
+);
