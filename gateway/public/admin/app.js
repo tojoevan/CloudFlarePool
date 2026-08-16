@@ -4,7 +4,7 @@
 const $ = (s) => document.querySelector(s);
 const API = ''; // 同源网关
 const TOKEN_KEY = 'weijiashi_t4';
-const SPA_VERSION = 'v0.0.1'; // 前端语义版本（随发布维护）
+const SPA_VERSION = 'v0.0.2'; // 前端语义版本（随发布维护）
 
 const getToken = () => localStorage.getItem(TOKEN_KEY);
 const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
@@ -704,8 +704,10 @@ async function loadVersion() {
     mp = j.miniappVersion || '';
   } catch (_) {}
 
+  // 前端双版本号：语义版本 + 网关 git HEAD（SPA 随网关同源部署，可溯源到具体 commit）
+  const spaVer = SPA_VERSION + (gw ? '.' + gw : '');
   // footer：前端 · 网关 · 数据湖
-  $('#ver-front').textContent = SPA_VERSION;
+  $('#ver-front').textContent = spaVer;
   $('#ver-gw').textContent = gw || '未配置';
   $('#ver-dl').textContent = dl || '未配置';
   // 网关与数据湖部署自不同 commit → 配套异常，标红
@@ -715,7 +717,7 @@ async function loadVersion() {
   $('#ver-dl').classList.toggle('warn', mismatch);
 
   // 概览版本矩阵
-  $('#ver-sp2').textContent = SPA_VERSION;
+  $('#ver-sp2').textContent = spaVer;
   $('#ver-gw2').textContent = gw || '未配置';
   $('#ver-dl2').textContent = dl || '未配置';
   $('#ver-mp').textContent = mp || '未配置';
@@ -723,9 +725,9 @@ async function loadVersion() {
 }
 loadVersion();
 
-// 复制版本矩阵：前端 v0.0.1 · 网关 xxx · 数据湖 yyy
+// 复制版本矩阵：前端 x.y.z.HEAD · 网关 xxx · 数据湖 yyy
 function copyVersion() {
-  const full = `前端 ${SPA_VERSION} · 网关 ${$('#ver-gw').textContent} · 数据湖 ${$('#ver-dl').textContent}`;
+  const full = `前端 ${$('#ver-front').textContent} · 网关 ${$('#ver-gw').textContent} · 数据湖 ${$('#ver-dl').textContent}`;
   navigator.clipboard?.writeText(full)
     .then(() => toast('已复制版本 ' + full))
     .catch(() => toast('复制失败，请手动选择', false));
