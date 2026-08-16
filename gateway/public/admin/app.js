@@ -18,13 +18,23 @@ function toast(msg, ok = true) {
   setTimeout(() => t.classList.add('hidden'), 2200);
 }
 
+function setDeployEnabled(on) {
+  const b = $('#deploy-btn');
+  if (!b) return;
+  b.disabled = !on;
+  b.title = on
+    ? '一键部署：拉取最新代码，数据湖 + SPA 配套发布（platform-admin 专属）'
+    : '请先登录管理员账号后再操作';
+}
 function showLogin() {
   $('#login').classList.remove('hidden');
   $('#main').classList.add('hidden');
+  setDeployEnabled(false);
 }
 function showMain() {
   $('#login').classList.add('hidden');
   $('#main').classList.remove('hidden');
+  setDeployEnabled(true);
   loadStats();
 }
 
@@ -646,6 +656,7 @@ async function pollDeploy(taskId) {
 }
 
 async function deploy() {
+  if (!getToken()) { toast('请先登录管理员账号后再操作', false); return; }
   if (!confirm('确认从当前代码 HEAD 触发重新部署？将拉取最新代码并配套发布数据湖 + SPA。')) return;
   const btn = $('#deploy-btn');
   btn.disabled = true;

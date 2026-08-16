@@ -28,7 +28,8 @@ fi
 if [ ! -f "$DEPLOY_KEY" ]; then
   mkdir -p "$(dirname "$DEPLOY_KEY")"
   ssh-keygen -t ed25519 -C "deploy-cloudflarepool" -f "$DEPLOY_KEY" -N "" -q
-  chmod 644 "$DEPLOY_KEY" "${DEPLOY_KEY}.pub"
+  chmod 600 "$DEPLOY_KEY"            # 私钥必须 600，否则 ssh 拒绝使用（UNPROTECTED KEY）
+  chmod 644 "${DEPLOY_KEY}.pub"
   chmod 755 "$(dirname "$DEPLOY_KEY")"
   echo "[setup] 已生成部署密钥 $DEPLOY_KEY"
 fi
@@ -47,6 +48,10 @@ if [ "${GITHUB_DEPLOY_KEY_ADDED:-0}" != "1" ]; then
   echo "添加后重跑：GITHUB_DEPLOY_KEY_ADDED=1 CLOUDFLARE_API_TOKEN=xxx $0"
   exit 0
 fi
+
+# 仓库可能由其他用户克隆（如 root 克隆后 chown 给 www），当前用户跑 git 会触发
+# "dubious ownership" 安全锁导致脚本中止、写 .env 那步永远执行不到。提前加白名单解锁。
+git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
 
 echo "[setup] 检查基础依赖..."
 command -v git >/dev/null 2>&1 || { echo "✗ 未安装 git，请先安装"; exit 1; }
