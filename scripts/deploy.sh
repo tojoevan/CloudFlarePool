@@ -7,7 +7,7 @@
 #   - version.json 由本脚本重写；网关 /api/health 懒读它，故部署后**无需重启网关**
 #     即在后台「版本矩阵」显示新 HEAD。仅当 server.js 自身改动时才需宝塔重启网关。
 #   - CLOUDFLARE_API_TOKEN 由网关进程环境继承（网关 .env 中配置），wrangler 直接读取。
-set -uo pipefail
+set -euo pipefail
 
 REPO_DIR="${DEPLOY_REPO_DIR:-/opt/cloudflarepool}"
 WEB_ROOT="${DEPLOY_WEB_ROOT:-/www/wwwroot/home.inkspcl.com}"
