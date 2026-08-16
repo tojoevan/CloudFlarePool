@@ -552,6 +552,8 @@ $('#users-refresh').addEventListener('click', loadUsers);
 $('#key-issue').addEventListener('click', issueKey);
 $('#key-secret-copy').addEventListener('click', copySecret);
 $('#pw-form').addEventListener('submit', changePassword);
+$('#ver-copy').addEventListener('click', copyVersion);
+$('#deploy-btn').addEventListener('click', deploy);
 
 // 数据浏览器事件
 $('#data-table').addEventListener('change', (e) => {
@@ -571,18 +573,48 @@ $('#data-export-json').addEventListener('click', () => exportData('json'));
 $('#audit-action').addEventListener('change', (e) => { auditState.action = e.target.value; auditState.offset = 0; loadAudit(); });
 $('#audit-refresh').addEventListener('click', () => { auditState.offset = 0; loadAudit(); });
 
-// 启动：底部双版本（前端语义版本 + 后端 git HEAD）
+// 启动：底部组合版本号（前端语义版本.后端部署 git HEAD），形如 v0.0.1.4471e45
 async function loadVersion() {
-  $('#ver-front').textContent = '前端 ' + SPA_VERSION;
+  let hash = '';
   try {
     const r = await fetch(API + '/api/health');
     const j = await r.json().catch(() => ({}));
-    $('#ver-back').textContent = '后端 ' + (j.git ? j.git : (j.name ? '已连接' : '-'));
-  } catch (_) {
-    $('#ver-back').textContent = '后端 -';
-  }
+    hash = j.git ? j.git : (j.name ? 'connected' : '');
+  } catch (_) {}
+  $('#ver-full').textContent = hash ? `${SPA_VERSION}.${hash}` : SPA_VERSION;
 }
 loadVersion();
+
+// 复制组合版本号（如 v0.0.1.4471e45），便于粘贴到提交 / 工单
+function copyVersion() {
+  const full = $('#ver-full').textContent.trim();
+  navigator.clipboard?.writeText(full)
+    .then(() => toast('已复制版本 ' + full))
+    .catch(() => toast('复制失败，请手动选择', false));
+}
+
+// 一键重新部署：需网关实现 /api/t4data/deploy 后才真正生效
+const DEPLOY_READY = false; // 后端自动部署端点尚未接入
+async function deploy() {
+  if (!DEPLOY_READY) {
+    toast('一键部署后端待接入（需在网关实现 /api/t4data/deploy）', false);
+    return;
+  }
+  if (!confirm('确认从当前代码 HEAD 触发重新部署？部署期间服务可能短暂不可用。')) return;
+  const btn = $('#deploy-btn');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '部署中…';
+  try {
+    const r = await api('/api/t4data/deploy', { method: 'POST' });
+    toast('部署已触发：' + (r.message || '成功'));
+  } catch (err) {
+    toast('部署失败：' + err.message, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
 
 // 启动：有令牌直接进主界面
 if (getToken()) showMain();

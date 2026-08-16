@@ -33,14 +33,49 @@ html, body {
 
 .footer {
   margin-top: auto;
-  padding: 16px 4px 12px;
-  text-align: center;
+  padding: 14px 4px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
   font-size: 12px;
   color: var(--muted);
   border-top: 1px solid var(--line);
 }
-.footer .dot { margin: 0 6px; opacity: 0.5; }
-#ver-front, #ver-back { font-variant-numeric: tabular-nums; }
+.f-brand { font-weight: 600; color: var(--ink); }
+.f-ver {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #fbfcfb;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.f-ver:hover { border-color: var(--brand); color: var(--brand); }
+.f-ver #ver-full { color: var(--ink); font-weight: 600; }
+.f-deploy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+  color: var(--brand);
+  font-weight: 600;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.f-deploy:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
+.f-deploy:disabled { opacity: 0.5; cursor: default; }
 
 .card {
   background: var(--card);
