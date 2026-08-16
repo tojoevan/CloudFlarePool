@@ -647,11 +647,14 @@ async function pollDeploy(taskId) {
       deployTimer = setTimeout(() => pollDeploy(taskId), 2000);
     } else {
       $('#deploy-title').textContent = task.status === 'success' ? '部署完成' : '部署失败';
+      $('#deploy-btn').disabled = false; // 部署结束才解禁按钮，防止并发触发
       loadVersion(); // 刷新版本矩阵
+      toast(task.status === 'success' ? '部署成功' : '部署失败', task.status === 'success');
     }
   } catch (err) {
     $('#deploy-status').textContent = '✗ 查询进度失败：' + err.message;
     $('#deploy-status').className = 'overlay-status failed';
+    $('#deploy-btn').disabled = false; // 轮询异常也解禁，避免卡死
   }
 }
 
@@ -666,15 +669,16 @@ async function deploy() {
     if (r.taskId) {
       $('#deploy-overlay').classList.remove('hidden');
       $('#deploy-log').textContent = '已触发，等待任务启动…';
-      pollDeploy(r.taskId);
+      pollDeploy(r.taskId); // 异步轮询；按钮保持禁用直到 success/failed
     } else {
       toast('部署触发：' + (r.message || '已提交'), true);
+      btn.disabled = false;
     }
   } catch (err) {
     toast('部署失败：' + err.message, false);
-  } finally {
     btn.disabled = false;
   }
+  // 注意：成功触发后不在此处解禁按钮，改由 pollDeploy 在任务结束时解禁
 }
 
 // 启动：有令牌直接进主界面

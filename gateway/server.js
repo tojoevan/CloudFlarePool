@@ -328,8 +328,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // 一键部署（仅 platform-admin 可触发）：验签 T4 → 校验 platform 角色 →
+    // 一键部署（platform / tenant 管理员均可触发）：验签 T4 → 校验 admin 角色 →
     // 限频 → 异步 spawn 部署脚本 → 返回 taskId。高权限操作，务必 crypto 验签。
+    // 单租户 MVP 中 tenant 管理员即平台运维者，故两者皆放行；app 级角色不授权部署。
     if (req.method === 'POST' && path === '/api/t4data/deploy') {
       if (!CFG.jwtPrivateKey) { sendJson(res, 500, { error: 'gateway JWT not configured' }); return; }
       const token = bearerFrom(req);
@@ -337,8 +338,8 @@ const server = http.createServer(async (req, res) => {
       let payload;
       try { payload = verifyJwt(token, CFG.jwtPrivateKey); }
       catch { sendJson(res, 401, { error: 'invalid or expired token' }); return; }
-      if (payload.typ !== 'admin' || !payload.scp?.includes('admin:platform')) {
-        sendJson(res, 403, { error: 'forbidden: platform-admin only may deploy' });
+      if (payload.typ !== 'admin' || !payload.scp?.some((s) => s === 'admin:platform' || s === 'admin:tenant')) {
+        sendJson(res, 403, { error: 'forbidden: admin (platform/tenant) only may deploy' });
         return;
       }
       const now = Date.now();
