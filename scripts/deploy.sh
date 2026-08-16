@@ -12,6 +12,9 @@ set -uo pipefail
 REPO_DIR="${DEPLOY_REPO_DIR:-/opt/cloudflarepool}"
 WEB_ROOT="${DEPLOY_WEB_ROOT:-/www/wwwroot/home.inkspcl.com}"
 
+# 部署用 SSH 只读密钥（中立路径，网关无论以 root/www 运行均可读取，git pull 不依赖 ~/.ssh）
+export GIT_SSH_COMMAND="ssh -i /opt/cloudflarepool-deploy/id_ed25519 -o StrictHostKeyChecking=no"
+
 echo "[deploy] REPO_DIR=$REPO_DIR  WEB_ROOT=$WEB_ROOT"
 echo "[deploy] CLOUDFLARE_API_TOKEN set: $([ -n "${CLOUDFLARE_API_TOKEN:-}" ] && echo yes || echo NO)"
 

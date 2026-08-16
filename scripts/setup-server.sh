@@ -11,7 +11,10 @@
 # 以加载新的 /api/t4data/deploy 路由；之后点击「版本更新」即可一键部署。
 set -euo pipefail
 
-CLONE_URL="${CLONE_URL:-https://github.com/tojoevan/CloudFlarePool.git}"
+# 部署用 SSH 只读部署密钥：服务器凭此 pull 私有仓库，无需任何账户级凭证。
+# 密钥中立存放于 /opt/cloudflarepool-deploy（网关无论以 root/www 运行均可读）。
+DEPLOY_KEY="${DEPLOY_KEY:-/opt/cloudflarepool-deploy/id_ed25519}"
+CLONE_URL="${CLONE_URL:-github-cloudflarepool:tojoevan/CloudFlarePool.git}"
 REPO_DIR="${DEPLOY_REPO_DIR:-/opt/cloudflarepool}"
 WEB_ROOT="${DEPLOY_WEB_ROOT:-/www/wwwroot/home.inkspcl.com}"
 CF_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
@@ -19,6 +22,30 @@ CF_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 if [ -z "$CF_TOKEN" ]; then
   echo "✗ 缺少 CLOUDFLARE_API_TOKEN。请：CLOUDFLARE_API_TOKEN=xxx $0" >&2
   exit 1
+fi
+
+# —— 部署用 SSH 密钥（自包含、幂等）——
+if [ ! -f "$DEPLOY_KEY" ]; then
+  mkdir -p "$(dirname "$DEPLOY_KEY")"
+  ssh-keygen -t ed25519 -C "deploy-cloudflarepool" -f "$DEPLOY_KEY" -N "" -q
+  chmod 644 "$DEPLOY_KEY" "${DEPLOY_KEY}.pub"
+  chmod 755 "$(dirname "$DEPLOY_KEY")"
+  echo "[setup] 已生成部署密钥 $DEPLOY_KEY"
+fi
+if ! grep -q "Host github-cloudflarepool" "$HOME/.ssh/config" 2>/dev/null; then
+  printf "Host github-cloudflarepool\n  HostName github.com\n  IdentityFile %s\n  User git\n  StrictHostKeyChecking no\n" "$DEPLOY_KEY" >> "$HOME/.ssh/config"
+  chmod 600 "$HOME/.ssh/config"
+  echo "[setup] 已写入 ~/.ssh/config 别名 github-cloudflarepool"
+fi
+export GIT_SSH_COMMAND="ssh -i $DEPLOY_KEY -o StrictHostKeyChecking=no"
+# 公钥尚未在 GitHub 登记时，打印并退出，待用户添加后重跑
+if [ "${GITHUB_DEPLOY_KEY_ADDED:-0}" != "1" ]; then
+  echo "⚠️ 请将以下公钥添加为 GitHub 仓库 tojoevan/CloudFlarePool 的【只读 Deploy key】："
+  echo "----------------------------------------------------------------"
+  cat "$DEPLOY_KEY.pub"
+  echo "----------------------------------------------------------------"
+  echo "添加后重跑：GITHUB_DEPLOY_KEY_ADDED=1 CLOUDFLARE_API_TOKEN=xxx $0"
+  exit 0
 fi
 
 echo "[setup] 检查基础依赖..."
