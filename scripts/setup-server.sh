@@ -3,21 +3,21 @@
 #
 # 前置：服务器已装 node >=18 与 git，且能访问 GitHub 与 Cloudflare。
 # 用法（二选一）：
-#   CF_API_TOKEN=xxxx ./scripts/setup-server.sh
-#   export CF_API_TOKEN=xxxx; ./scripts/setup-server.sh
+#   CLOUDFLARE_API_TOKEN=xxxx ./scripts/setup-server.sh
+#   export CLOUDFLARE_API_TOKEN=xxxx; ./scripts/setup-server.sh
 #
-# 它会：克隆 cloudflarepool 仓库 → 安装 wrangler → 把 CF_API_TOKEN 与部署路径
+# 它会：克隆 cloudflarepool 仓库 → 安装 wrangler → 把 CLOUDFLARE_API_TOKEN 与部署路径
 # 写入网关 .env（仅服务端，gitignore 已忽略 .env）。完成后**请在宝塔重启网关**
 # 以加载新的 /api/t4data/deploy 路由；之后点击「版本更新」即可一键部署。
 set -euo pipefail
 
-CLONE_URL="${CLONE_URL:-https://github.com/YOUR_GITHUB/cloudflarepool.git}"
+CLONE_URL="${CLONE_URL:-https://github.com/tojoevan/CloudFlarePool.git}"
 REPO_DIR="${DEPLOY_REPO_DIR:-/opt/cloudflarepool}"
 WEB_ROOT="${DEPLOY_WEB_ROOT:-/www/wwwroot/home.inkspcl.com}"
-CF_TOKEN="${CF_API_TOKEN:-}"
+CF_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 
 if [ -z "$CF_TOKEN" ]; then
-  echo "✗ 缺少 CF_API_TOKEN。请：CF_API_TOKEN=xxx $0" >&2
+  echo "✗ 缺少 CLOUDFLARE_API_TOKEN。请：CLOUDFLARE_API_TOKEN=xxx $0" >&2
   exit 1
 fi
 
@@ -60,7 +60,7 @@ set_env() {
 
 echo "[setup] 写入部署相关环境变量到网关 .env（WEB_ROOT 与仓库目录各一份）"
 for f in "$ENV_FILE" "$REPO_DIR/gateway/.env"; do
-  ENV_FILE="$f" set_env "CF_API_TOKEN" "$CF_TOKEN"
+  ENV_FILE="$f" set_env "CLOUDFLARE_API_TOKEN" "$CF_TOKEN"
   ENV_FILE="$f" set_env "DEPLOY_REPO_DIR" "$REPO_DIR"
   ENV_FILE="$f" set_env "DEPLOY_WEB_ROOT" "$WEB_ROOT"
 done

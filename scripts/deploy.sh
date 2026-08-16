@@ -6,14 +6,14 @@
 #   - 数据湖与 SPA 是独立部署单元，本脚本一次发齐（网关↔数据湖配套）。
 #   - version.json 由本脚本重写；网关 /api/health 懒读它，故部署后**无需重启网关**
 #     即在后台「版本矩阵」显示新 HEAD。仅当 server.js 自身改动时才需宝塔重启网关。
-#   - CF_API_TOKEN 由网关进程环境继承（网关 .env 中配置），wrangler 直接读取。
+#   - CLOUDFLARE_API_TOKEN 由网关进程环境继承（网关 .env 中配置），wrangler 直接读取。
 set -uo pipefail
 
 REPO_DIR="${DEPLOY_REPO_DIR:-/opt/cloudflarepool}"
 WEB_ROOT="${DEPLOY_WEB_ROOT:-/www/wwwroot/home.inkspcl.com}"
 
 echo "[deploy] REPO_DIR=$REPO_DIR  WEB_ROOT=$WEB_ROOT"
-echo "[deploy] CF_API_TOKEN set: $([ -n "${CF_API_TOKEN:-}" ] && echo yes || echo NO)"
+echo "[deploy] CLOUDFLARE_API_TOKEN set: $([ -n "${CLOUDFLARE_API_TOKEN:-}" ] && echo yes || echo NO)"
 
 cd "$REPO_DIR" || { echo "[deploy] ERROR: cannot cd $REPO_DIR"; exit 1; }
 
