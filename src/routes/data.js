@@ -95,7 +95,7 @@ dataRoute.post('/:tenant/todos', async (c) => {
 
   const b = await c.req.json().catch(() => ({}));
   const id = b.id || crypto.randomUUID();
-  const ow = b.owner_openid || ownerOf(c);
+  const ow = ownerOf(c);
 
   await c.env.DB.prepare(
     `INSERT INTO todos (id, tenant_id, owner_openid, title, meta, tag, dot, shared, family_id, updated_at)
@@ -241,7 +241,7 @@ dataRoute.post('/:tenant/archive', async (c) => {
   if (!tenant) return c.json({ error: 'tenant not found' }, 404);
   const b = await c.req.json().catch(() => ({}));
   const id = b.id || crypto.randomUUID();
-  const ow = b.owner_openid || ownerOf(c);
+  const ow = ownerOf(c);
 
   await c.env.DB.prepare(
     `INSERT INTO archive_items (id, tenant_id, owner_openid, type, payload, shared, family_id, created_at, updated_at)
@@ -339,18 +339,30 @@ dataRoute.get('/:tenant/family/shared', async (c) => {
   const tenant = await tenantOr404(c);
   if (!tenant) return c.json({ error: 'tenant not found' }, 404);
 
+  // Optional ?family=<id> scope. Absent => legacy tenant-wide aggregation
+  // (safe today because family_id is single-valued 'default'). When the
+  // multi-family model lands, clients MUST pass ?family=<member's family>
+  // so cross-family items are never leaked.
+  const fam = c.req.query('family');
+  const p = [tenant];
+  let cond = 'tenant_id = ? AND shared = 1';
+  if (fam) {
+    cond += ' AND family_id = ?';
+    p.push(fam);
+  }
+
   const todos = await c.env.DB.prepare(
     `SELECT 'todo' AS kind, id, title, meta, tag, dot, family_id, updated_at
-       FROM todos WHERE tenant_id = ? AND shared = 1 ORDER BY updated_at DESC`
+       FROM todos WHERE ${cond} ORDER BY updated_at DESC`
   )
-    .bind(tenant)
+    .bind(...p)
     .all();
 
   const archive = await c.env.DB.prepare(
     `SELECT 'archive' AS kind, id, type, payload, family_id, updated_at
-       FROM archive_items WHERE tenant_id = ? AND shared = 1 ORDER BY updated_at DESC`
+       FROM archive_items WHERE ${cond} ORDER BY updated_at DESC`
   )
-    .bind(tenant)
+    .bind(...p)
     .all();
 
   return c.json({
@@ -426,7 +438,7 @@ dataRoute.post('/:tenant/c/:collection', async (c) => {
   const aid = await resolveApp(c, tenant);
   const b = await c.req.json().catch(() => ({}));
   const id = b.id || crypto.randomUUID();
-  const ow = b.owner_openid || ownerOf(c);
+  const ow = ownerOf(c);
   await c.env.DB.prepare(
     `INSERT INTO collections (id, app_id, tenant_id, collection, owner_openid, doc, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`

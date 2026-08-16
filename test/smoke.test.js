@@ -162,6 +162,48 @@ test('B1: gateway-signed JWT reaches data lake; owner derived from JWT sub', asy
   await jres(await req('DELETE', '/t/jiashiben/todos/jt1', { headers: { 'X-User-Id': 'u_jwt' } }));
 });
 
+test('B1: owner_openid sent in request body is ignored (anti-spoof)', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', app_id: 'jiashiben', name: '微家事' } }));
+  const jwt = signJwt(
+    {
+      sub: 'u_attacker',
+      aid: 'jiashiben',
+      tid: 'jiashiben',
+      typ: 'wx',
+      scp: ['user:read', 'user:write'],
+      iss: 'gateway',
+      aud: 'data.kapibala.icu',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    },
+    PRIV_PEM
+  );
+
+  // Attacker tries to attribute the row to someone else via body.owner_openid.
+  const r = await jres(
+    await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + jwt, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'attack1', title: 'x', owner_openid: 'victim_openid' }),
+    })
+  );
+  assert.equal(r.status, 200);
+
+  const got = await jres(
+    await mf.dispatchFetch(BASE + '/t/jiashiben/todos/attack1', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + jwt },
+    })
+  );
+  assert.equal(got.status, 200);
+  assert.equal(
+    got.body.owner_openid,
+    'u_attacker',
+    'body.owner_openid must be ignored; ownership comes from the token, never the client'
+  );
+
+  await jres(await req('DELETE', '/t/jiashiben/todos/attack1', { headers: { 'X-User-Id': 'u_attacker' } }));
+});
+
 test('B1: unknown-kid / tampered JWT -> 401', async () => {
   const jwt = signJwt(
     { sub: 'x', tid: 'jiashiben', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
