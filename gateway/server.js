@@ -335,8 +335,14 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 403, { error: 'forbidden: only T2 account tokens allowed on this channel' });
         return;
       }
+      // 密码学验签后读取 tid：仅 cloudlet 可路由到独立 cloudlet 租户，其余回落 weijiashi。
+      // 必须验签——tid 是路由凭据，伪造 tid 会越权写入他人租户。
+      let payload;
+      try { payload = verifyJwt(token, CFG.jwtPrivateKey); }
+      catch { sendJson(res, 401, { error: 'invalid or expired token' }); return; }
+      const targetTenant = payload.tid === 'cloudlet' ? 'cloudlet' : CFG.tenantId;
       const rest = req.url.replace(/^\/api\/t2data\/?/, '');
-      const target = new URL(`/t/${encodeURIComponent(CFG.tenantId)}/${rest}`, CFG.dataLakeBase);
+      const target = new URL(`/t/${encodeURIComponent(targetTenant)}/${rest}`, CFG.dataLakeBase);
       const headers = { ...req.headers };
       delete headers['host'];
       // Authorization（T2 Bearer）保留——数据湖据此验签并设置 userId=sub
