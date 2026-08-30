@@ -424,7 +424,8 @@ async function editRow(id) {
   for (const col of t.edit) {
     const v = row[col];
     let input;
-    if (t.json.includes(col)) {
+    const isJson = t.json.includes(col);
+    if (isJson) {
       let txt = '';
       try { txt = JSON.stringify(v, null, 2); } catch { txt = String(v ?? ''); }
       input = `<textarea data-f="${col}" rows="3">${esc(txt)}</textarea>`;
@@ -434,7 +435,7 @@ async function editRow(id) {
     } else {
       input = `<input type="text" data-f="${col}" value="${esc(v ?? '')}" />`;
     }
-    fields += `<label><span>${col}</span>${input}</label>`;
+    fields += `<label class="${isJson ? 'full' : ''}"><span>${col}</span>${input}</label>`;
   }
   if (!fields) fields = '<p class="empty">该表只读，不可编辑</p>';
 

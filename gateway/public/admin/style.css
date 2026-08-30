@@ -427,6 +427,9 @@ button.act:disabled { opacity: 0.4; }
   width: 100%;
 }
 .edit-grid textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+/* JSON 字段的 textarea 跨满整行，与编辑行同宽，方便浏览长数据 */
+.edit-grid label.full { grid-column: 1 / -1; }
+.edit-grid label.full textarea { min-height: 180px; box-sizing: border-box; width: 100%; }
 .edit-actions { display: flex; align-items: center; gap: 8px; }
 .edit-actions .err { margin: 0; }
 
