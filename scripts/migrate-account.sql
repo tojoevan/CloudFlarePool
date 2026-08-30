@@ -43,7 +43,12 @@ CREATE TABLE IF NOT EXISTS api_keys (
   prev_kid      TEXT,                   -- rotation grace period (7d)
   prev_secret   TEXT,                   -- SHA-256(prev raw_secret); NULL after grace
   created_at    INTEGER,
-  revoked_at    INTEGER
+  revoked_at    INTEGER,
+  -- Phase 3.1: operator-facing metadata (optional, for the admin console)
+  label         TEXT,                    -- 人类可读名称，如「cloudlet 运维 agent」
+  note          TEXT,                    -- 自由备注
+  used_by       TEXT,                    -- 使用者 / 用途，如「CodeBuddy agent」
+  expires_at    INTEGER                  -- 令牌建议失效时间（仅展示与提醒用，真正失效由 token exp 决定）
 );
 
 CREATE TABLE IF NOT EXISTS admin_accounts (

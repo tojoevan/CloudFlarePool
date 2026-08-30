@@ -39,20 +39,26 @@ keysRoute.post('/:app/keys', async (c) => {
   const secretHash = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawSecret)));
   const kid = `${id}.v1`;
 
+  // Phase 3.1: optional operator metadata (label / note / used_by / expires_at).
+  const label = typeof b.label === 'string' ? b.label.slice(0, 120) : null;
+  const note = typeof b.note === 'string' ? b.note.slice(0, 500) : null;
+  const usedBy = typeof b.used_by === 'string' ? b.used_by.slice(0, 120) : null;
+  const expiresAt = Number.isFinite(b.expires_at) ? Math.floor(b.expires_at) : null;
+
   await c.env.DB.prepare(
-    `INSERT INTO api_keys (id, app_id, tenant_id, secret_hash, scope, tenant_bound, status, current_kid, prev_kid, prev_secret, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, NULL, NULL, ?)`
+    `INSERT INTO api_keys (id, app_id, tenant_id, secret_hash, scope, tenant_bound, status, current_kid, prev_kid, prev_secret, created_at, label, note, used_by, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?, ?, ?, ?)`
   )
-    .bind(id, appId, tenantId, secretHash, JSON.stringify(scope), tenantBound ? 1 : 0, kid, Date.now())
+    .bind(id, appId, tenantId, secretHash, JSON.stringify(scope), tenantBound ? 1 : 0, kid, Date.now(), label, note, usedBy, expiresAt)
     .run();
 
   // raw_secret is returned exactly once; the lake never stores it in recoverable form.
-  return c.json({ id, raw_secret: rawSecret, kid, scope, tenant_bound: tenantBound, tenant_id: tenantId });
+  return c.json({ id, raw_secret: rawSecret, kid, scope, tenant_bound: tenantBound, tenant_id: tenantId, label, note, used_by: usedBy, expires_at: expiresAt });
 });
 
 keysRoute.get('/:app/keys', async (c) => {
   const rows = await c.env.DB.prepare(
-    `SELECT id, app_id, tenant_id, scope, tenant_bound, status, current_kid, created_at
+    `SELECT id, app_id, tenant_id, scope, tenant_bound, status, current_kid, created_at, label, note, used_by, expires_at
      FROM api_keys WHERE app_id = ? ORDER BY created_at DESC`
   )
     .bind(c.req.param('app'))
@@ -67,6 +73,10 @@ keysRoute.get('/:app/keys', async (c) => {
       status: r.status,
       current_kid: r.current_kid,
       created_at: r.created_at,
+      label: r.label ?? null,
+      note: r.note ?? null,
+      used_by: r.used_by ?? null,
+      expires_at: r.expires_at ?? null,
     }))
   );
 });

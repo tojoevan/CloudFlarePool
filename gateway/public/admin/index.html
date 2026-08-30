@@ -116,15 +116,54 @@
           <h2>服务密钥（T3 · MCP/Skill）</h2>
           <button class="primary sm" id="key-issue">签发新密钥</button>
         </div>
+        <p class="explain">
+          <b>用途：</b>T3 服务密钥用于 <b>机机调用（MCP / Skill / 服务端对服务端）</b>。持有 <code>raw_secret</code> 的一方自签 T3 令牌，
+          经网关 <code>/api/t3data/</code> 通道读写数据；<code>scope</code> 决定读（<code>data:read</code>）或写（<code>data:write</code>），<code>tenant_bound</code> 限制可访问的租户。
+          不想自己签名？用下方「签出访问令牌」让网关代签一个可直接粘贴的 Bearer。
+        </p>
         <div id="key-secret" class="secret-box hidden">
           <p class="secret-warn">⚠️ 密钥仅显示一次，请立即复制保存：</p>
           <code id="key-secret-val"></code>
           <button class="ghost sm" id="key-secret-copy">复制</button>
         </div>
+
+        <!-- 代签访问令牌（便捷授权） -->
+        <details class="mint-box">
+          <summary>签出访问令牌（给 agent / MCP 直接用）</summary>
+          <div class="mint-grid">
+            <label>租户
+              <select id="mint-tenant">
+                <option value="weijiashi">weijiashi</option>
+                <option value="cloudlet">cloudlet</option>
+              </select>
+            </label>
+            <label>权限
+              <select id="mint-scope">
+                <option value="both">读写（data:read+write）</option>
+                <option value="read">只读（data:read）</option>
+                <option value="write">只写（data:write）</option>
+              </select>
+            </label>
+            <label>有效期(秒)
+              <input id="mint-ttl" type="number" value="86400" min="60" step="60" />
+            </label>
+            <label>使用者 / 备注
+              <input id="mint-note" type="text" placeholder="如：CodeBuddy agent" />
+            </label>
+          </div>
+          <button class="primary sm" id="mint-btn" type="button">签出令牌</button>
+          <div id="mint-result" class="secret-box hidden">
+            <p class="secret-warn">⚠️ 令牌仅显示一次：</p>
+            <code id="mint-token"></code>
+            <button class="ghost sm" id="mint-copy" type="button">复制</button>
+            <p id="mint-usage" class="foot"></p>
+          </div>
+        </details>
+
         <div class="table-wrap">
           <table class="tbl">
-            <thead><tr><th>ID</th><th>作用域</th><th>状态</th><th>创建</th><th>操作</th></tr></thead>
-            <tbody id="keys-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+            <thead><tr><th>ID</th><th>备注/使用者</th><th>作用域</th><th>状态</th><th>创建</th><th>有效期</th><th>操作</th></tr></thead>
+            <tbody id="keys-body"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
           </table>
         </div>
       </div>

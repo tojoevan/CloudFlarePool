@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { loadDotEnv } from './lib/dotenv.js';
 import { signSession, verifySession, bearerFrom } from './lib/auth.js';
-import { signT1, signT2, signT4, verifyJwt } from './lib/jwt.js';
+import { signT1, signT2, signT4, signServiceToken, verifyJwt } from './lib/jwt.js';
 import { startDeploy, getDeployStatus } from './lib/deploy.js';
+import { createKeyring, verifyServiceLocal } from './lib/keyring.js';
 
 loadDotEnv();
 
@@ -30,7 +31,16 @@ const CFG = {
   sessionTtl: Number(process.env.SESSION_TTL || 2592000),
   // 小程序版本：独立仓库 jiashiben/weijiashi，由服务器 .env 维护（每次发版更新）
   miniappVersion: process.env.MINIAPP_VERSION || null,
+  // 运营代签（/api/t4data/tokens/mint）允许签出的租户白名单。cloudlet 走 T2 通道，
+  // 此处同样允许 agent 经 T3 访问其数据湖租户。逗号分隔，默认 weijiashi + cloudlet。
+  mintTenants: (process.env.MINT_TENANTS || 'weijiashi,cloudlet').split(',').map((s) => s.trim()).filter(Boolean),
 };
+
+// 网关密钥环：持有服务密钥 raw_secret 以便为 agent 代签 T3 Bearer。
+// KEYRING_FILE 指向受保护持久路径（默认网关根目录 ./keyring.json，部署时改为仓库外路径）。
+const __gwRoot = dirname(fileURLToPath(import.meta.url));
+if (!process.env.KEYRING_FILE) process.env.KEYRING_FILE = join(__gwRoot, 'keyring.json');
+const keyring = createKeyring();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -135,6 +145,18 @@ function jwtTyp(token) {
     const pad = p.length % 4 ? 4 - (p.length % 4) : 0;
     const json = JSON.parse(Buffer.from(p + '='.repeat(pad), 'base64').toString('utf8'));
     return json && json.typ;
+  } catch {
+    return null;
+  }
+}
+
+// 同样轻量、未验签地读取 JWT payload（用于 T3 通道按 tid 路由）。
+function jwtPayloadUnsafe(token) {
+  try {
+    const p = String(token).split('.')[1];
+    if (!p) return null;
+    const pad = p.length % 4 ? 4 - (p.length % 4) : 0;
+    return JSON.parse(Buffer.from(p + '='.repeat(pad), 'base64url').toString('utf8'));
   } catch {
     return null;
   }
@@ -362,6 +384,161 @@ const server = http.createServer(async (req, res) => {
     // 4c) T4 管理后台通道反代：admin 持 T4 Bearer，原样转发到数据湖 /admin/*
     //     数据湖校验 typ==='admin' 并据 role 返回租户统计；仅放行 typ=admin
     //     （轻量 typ 校验防 T2/T1 透传，密码学验签交给数据湖 dualGuard）
+
+    // 4d) T3 服务令牌通道：agent / MCP / Skill 经此读写数据（机机 M2M）。
+    //     网关用密钥环对 T3 做本地验签 + scope 校验，再按令牌 tid 路由到对应租户；
+    //     原样转发 T3 Bearer，数据湖 dualGuard 会再次验签（纵深防御）。
+    if (path.startsWith('/api/t3data/')) {
+      const token = bearerFrom(req);
+      if (!token) { sendJson(res, 401, { error: 'unauthorized: missing bearer' }); return; }
+      if (jwtTyp(token) !== 'service') {
+        sendJson(res, 403, { error: 'forbidden: only T3 service tokens allowed on this channel' });
+        return;
+      }
+      const payloadUnsafe = jwtPayloadUnsafe(token) || {};
+      const keyId = payloadUnsafe.sub;
+      const entry = keyId ? keyring.get(keyId) : null;
+      let tenant = null, scope = null, verified = false;
+      if (entry) {
+        const payload = verifyServiceLocal(token, entry.secret);
+        if (!payload) { sendJson(res, 401, { error: 'invalid or expired service token' }); return; }
+        tenant = payload.tid || entry.tenant;
+        scope = payload.scp || entry.scope;
+        verified = true;
+      } else {
+        // 密钥环无此密钥（如他处签发）：退化为仅按 tid 路由，校验交给数据湖。
+        tenant = payloadUnsafe.tid || null;
+      }
+      if (!tenant) { sendJson(res, 400, { error: 'cannot resolve tenant for token' }); return; }
+      // scope 校验：读需 data:read|data:*；写需 data:write|data:*（仅本地已知密钥时执行）
+      if (verified) {
+        const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+        const need = isWrite ? 'data:write' : 'data:read';
+        const okScope = (scope || []).includes(need) || (scope || []).includes('data:*');
+        if (!okScope) { sendJson(res, 403, { error: `forbidden: token scope lacks ${need}` }); return; }
+      }
+      const rest = req.url.replace(/^\/api\/t3data\/?/, '');
+      const target = new URL(`/t/${encodeURIComponent(tenant)}/${rest}`, CFG.dataLakeBase);
+      const headers = { ...req.headers };
+      delete headers['host'];
+      // Authorization（T3 Bearer）保留——数据湖据此验签并设置 userId=sub
+      const transport = target.protocol === 'https:' ? https : http;
+      const proxyReq = transport.request(target, { method: req.method, headers }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, filterOutgoing(proxyRes.headers));
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', () => {
+        if (!res.headersSent) sendJson(res, 502, { error: 'data lake unreachable' });
+        else res.end();
+      });
+      req.pipe(proxyReq);
+      return;
+    }
+
+    // 4e) 签发服务密钥时把 raw_secret 捕获进网关密钥环（仅拦截此端点，
+    //     其余 /api/t4data/* 仍走下方通用代理）。这样后续代签 agent 令牌
+    //     时网关已持有 raw_secret，可直接签 T3 Bearer。
+    if (req.method === 'POST' && path === '/api/t4data/keys') {
+      const token = bearerFrom(req);
+      let pl = null;
+      if (token) { try { pl = verifyJwt(token, CFG.jwtPrivateKey); } catch { pl = null; } }
+      if (pl && pl.typ === 'admin') {
+        let body;
+        try { body = await readJson(req); } catch { body = {}; }
+        try {
+          const r = await fetch(`${CFG.dataLakeBase}/admin/keys`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+            body: JSON.stringify(body),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (j.raw_secret && j.id) {
+            keyring.put(j.id, {
+              secret: j.raw_secret,
+              scope: j.scope || ['data:read', 'data:write'],
+              tenant: j.tenant_id,
+              meta: { label: j.label ?? null, used_by: j.used_by ?? null },
+            });
+          }
+          sendJson(res, r.status, j);
+        } catch {
+          sendJson(res, 502, { error: 'data lake unreachable' });
+        }
+        return;
+      }
+      // 非 admin 令牌：交给下方通用代理返回 401
+    }
+
+    // 4f) 代签 agent 访问令牌（T4 管理员）：确保目标租户存在可用服务密钥
+    //     （密钥环无则经 X-Sync-Key 在数据湖建一个并捕获 raw_secret），然后
+    //     用网关持有的 raw_secret 签一个短期 T3 Bearer 返回，agent 可直接粘贴。
+    if (req.method === 'POST' && path === '/api/t4data/tokens/mint') {
+      const token = bearerFrom(req);
+      if (!token) { sendJson(res, 401, { error: 'unauthorized: missing bearer' }); return; }
+      let payload;
+      try { payload = verifyJwt(token, CFG.jwtPrivateKey); }
+      catch { sendJson(res, 401, { error: 'invalid or expired token' }); return; }
+      if (payload.typ !== 'admin' || !payload.scp?.some((s) => s === 'admin:platform' || s === 'admin:tenant')) {
+        sendJson(res, 403, { error: 'forbidden: admin (platform/tenant) only may mint tokens' });
+        return;
+      }
+      const b = await readJson(req).catch(() => ({}));
+      const tenant = String(b.tenant || CFG.tenantId);
+      if (!CFG.mintTenants.includes(tenant)) {
+        sendJson(res, 400, { error: `tenant not mintable: ${tenant}`, mintable: CFG.mintTenants });
+        return;
+      }
+      const scopeMode =
+        b.scope === 'read' ? ['data:read']
+        : b.scope === 'write' ? ['data:write']
+        : ['data:read', 'data:write'];
+      const ttl = Number.isFinite(b.ttl) ? Math.floor(b.ttl) : 86400; // 默认 1 天
+      const note = typeof b.note === 'string' ? b.note.slice(0, 200) : '';
+
+      let keyId = keyring.find(tenant, scopeMode);
+      let rawSecret = keyId ? keyring.get(keyId).secret : null;
+      if (!keyId || !rawSecret) {
+        try {
+          const cr = await fetch(`${CFG.dataLakeBase}/v1/a/${encodeURIComponent(CFG.appId)}/keys`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-sync-key': CFG.internalKey },
+            body: JSON.stringify({
+              scope: scopeMode,
+              tenant_bound: true,
+              tenant_id: tenant,
+              label: 'gateway-mint',
+              used_by: note || 'agent',
+              note,
+            }),
+          });
+          const cj = await cr.json().catch(() => ({}));
+          if (cr.status !== 200 || !cj.raw_secret) throw new Error(cj.error || 'key creation failed');
+          keyId = cj.id;
+          rawSecret = cj.raw_secret;
+          keyring.put(keyId, {
+            secret: rawSecret,
+            scope: scopeMode,
+            tenant,
+            meta: { label: 'gateway-mint', used_by: note || 'agent' },
+          });
+        } catch (e) {
+          sendJson(res, 502, { error: 'failed to provision service key', detail: e.message });
+          return;
+        }
+      }
+      const jwt = signServiceToken({ serviceId: keyId, rawSecret, appId: CFG.appId, tenantId: tenant, scope: scopeMode, ttl });
+      const expiresAt = Math.floor(Date.now() / 1000) + ttl;
+      sendJson(res, 200, {
+        token: jwt,
+        keyId,
+        tenant,
+        scope: scopeMode,
+        expires_at: expiresAt,
+        note,
+        usage: '在 /api/t3data/ 通道携带此 Bearer（Authorization: Bearer <token>）读写数据；scope 决定读/写权限。',
+      });
+      return;
+    }
 
     // 部署状态轮询（必须在 t4data 代理之前匹配，否则会被透传到数据湖）
     const statusMatch = path.match(/^\/api\/t4data\/deploy\/status\/([\w-]+)$/);

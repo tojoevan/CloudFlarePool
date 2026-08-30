@@ -278,6 +278,36 @@ adminRoute.post('/users/:id/status', async (c) => {
   return c.json({ ok: true, id, status });
 });
 
+// 管理员代重置普通用户密码（仅限本租户）。重置后用户下次用新密码登录；
+// 新密码由代操作管理员线下传达（无邮件 / 短信依赖）。身份取自 T4 令牌 sub。
+adminRoute.post('/users/:id/reset', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const db = c.env.DB;
+  const tid = c.get('userTid') || 'weijiashi';
+  const id = c.req.param('id');
+  const b = await c.req.json().catch(() => ({}));
+  const np = b.new_password || '';
+  if (String(np).length < 8) {
+    return c.json({ error: 'new_password too short (>=8 chars)' }, 400);
+  }
+  const row = await db.prepare('SELECT id, tenant_id, email FROM users WHERE id = ?').bind(id).first();
+  if (!row || row.tenant_id !== tid) return c.json({ error: 'user not found in your tenant' }, 404);
+  let newHash;
+  try {
+    newHash = await hashPassword(np);
+  } catch {
+    return c.json({ error: 'password hashing failed' }, 500);
+  }
+  if (typeof newHash !== 'string' || !/^[0-9a-f]{32}\$\d+\$[0-9a-f]+$/.test(newHash)) {
+    return c.json({ error: 'generated hash invalid' }, 500);
+  }
+  await db.prepare('UPDATE users SET pwd_hash = ? WHERE id = ? AND tenant_id = ?').bind(newHash, id, tid).run();
+  await audit(c, 'password.reset', `user:${id}`, { by: c.get('userId'), email: row.email });
+  return c.json({ ok: true, id });
+});
+
 // T3 服务密钥列表（租户内）。
 adminRoute.get('/keys', async (c) => {
   const deny = requireAdmin(c);
@@ -287,7 +317,7 @@ adminRoute.get('/keys', async (c) => {
   const tid = c.get('userTid') || 'weijiashi';
   const rows = await db
     .prepare(
-      'SELECT id, tenant_id, scope, tenant_bound, status, current_kid, created_at FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC'
+      'SELECT id, tenant_id, scope, tenant_bound, status, current_kid, created_at, label, note, used_by, expires_at FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC'
     )
     .bind(tid)
     .all();
@@ -300,11 +330,16 @@ adminRoute.get('/keys', async (c) => {
       status: r.status,
       current_kid: r.current_kid,
       created_at: r.created_at,
+      label: r.label ?? null,
+      note: r.note ?? null,
+      used_by: r.used_by ?? null,
+      expires_at: r.expires_at ?? null,
     }))
   );
 });
 
 // 签发新的 T3 服务密钥（tenant_bound，仅本租户）。raw_secret 仅返回一次。
+// Phase 3.1：接受并持久化 label / note / used_by / expires_at 运营备注。
 adminRoute.post('/keys', async (c) => {
   const deny = requireAdmin(c);
   if (deny) return deny;
@@ -319,12 +354,16 @@ adminRoute.post('/keys', async (c) => {
   const rawSecret = bytesToB64url(crypto.getRandomValues(new Uint8Array(32)));
   const secretHash = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawSecret)));
   const kid = `${id}.v1`;
+  const label = typeof b.label === 'string' ? b.label.slice(0, 120) : null;
+  const note = typeof b.note === 'string' ? b.note.slice(0, 500) : null;
+  const usedBy = typeof b.used_by === 'string' ? b.used_by.slice(0, 120) : null;
+  const expiresAt = Number.isFinite(b.expires_at) ? Math.floor(b.expires_at) : null;
   await db
-    .prepare('INSERT INTO api_keys (id, app_id, tenant_id, secret_hash, scope, tenant_bound, status, current_kid, prev_kid, prev_secret, created_at) VALUES (?, ?, ?, ?, ?, 1, \'active\', ?, NULL, NULL, ?)')
-    .bind(id, appId, tid, secretHash, JSON.stringify(scope), kid, Date.now())
+    .prepare('INSERT INTO api_keys (id, app_id, tenant_id, secret_hash, scope, tenant_bound, status, current_kid, prev_kid, prev_secret, created_at, label, note, used_by, expires_at) VALUES (?, ?, ?, ?, ?, 1, \'active\', ?, NULL, NULL, ?, ?, ?, ?, ?)')
+    .bind(id, appId, tid, secretHash, JSON.stringify(scope), kid, Date.now(), label, note, usedBy, expiresAt)
     .run();
-  await audit(c, 'key.issue', `key:${id}`, { scope });
-  return c.json({ id, raw_secret: rawSecret, kid, scope, tenant_bound: true, tenant_id: tid });
+  await audit(c, 'key.issue', `key:${id}`, { scope, label, used_by: usedBy });
+  return c.json({ id, raw_secret: rawSecret, kid, scope, tenant_bound: true, tenant_id: tid, label, note, used_by: usedBy, expires_at: expiresAt });
 });
 
 // 吊销 T3 服务密钥（仅限本租户）。
@@ -343,6 +382,29 @@ adminRoute.post('/keys/:id/revoke', async (c) => {
     .run();
   await audit(c, 'key.revoke', `key:${id}`);
   return c.json({ ok: true, id, status: 'revoked' });
+});
+
+// 更新 T3 服务密钥的运营备注（label / note / used_by / expires_at）。
+// 不改变 secret / scope / 租户绑定，仅补充展示信息。仅限本租户。
+adminRoute.post('/keys/:id/meta', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const db = c.env.DB;
+  const tid = c.get('userTid') || 'weijiashi';
+  const id = c.req.param('id');
+  const row = await db.prepare('SELECT id, tenant_id FROM api_keys WHERE id = ?').bind(id).first();
+  if (!row || row.tenant_id !== tid) return c.json({ error: 'key not found in your tenant' }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const label = typeof b.label === 'string' ? b.label.slice(0, 120) : null;
+  const note = typeof b.note === 'string' ? b.note.slice(0, 500) : null;
+  const usedBy = typeof b.used_by === 'string' ? b.used_by.slice(0, 120) : null;
+  const expiresAt = Number.isFinite(b.expires_at) ? Math.floor(b.expires_at) : null;
+  await db
+    .prepare('UPDATE api_keys SET label = ?, note = ?, used_by = ?, expires_at = ? WHERE id = ? AND tenant_id = ?')
+    .bind(label, note, usedBy, expiresAt, id, tid)
+    .run();
+  return c.json({ ok: true, id, label, note, used_by: usedBy, expires_at: expiresAt });
 });
 
 // ===== Admin Management (platform only) =====

@@ -152,11 +152,14 @@ async function loadUsers() {
         `<td><span class="badge ${disabled ? 'bad' : 'ok'}">${disabled ? '已禁用' : '正常'}</span></td>` +
         `<td>${esc(u.provider || 'native')}</td>` +
         `<td>${fmtTime(u.created_at)}</td>` +
-        `<td><button class="ghost sm act" data-id="${esc(u.id)}" data-status="${disabled ? 'active' : 'disabled'}">${disabled ? '启用' : '禁用'}</button></td>`;
+        `<td><button class="ghost sm act" data-act="status" data-id="${esc(u.id)}" data-status="${disabled ? 'active' : 'disabled'}">${disabled ? '启用' : '禁用'}</button> <button class="ghost sm act" data-act="reset" data-id="${esc(u.id)}">重置密码</button></td>`;
       body.appendChild(tr);
     }
     body.querySelectorAll('.act').forEach((b) =>
-      b.addEventListener('click', () => setUserStatus(b.dataset.id, b.dataset.status))
+      b.addEventListener('click', () => {
+        if (b.dataset.act === 'reset') resetUser(b.dataset.id);
+        else setUserStatus(b.dataset.id, b.dataset.status);
+      })
     );
   } catch (err) {
     body.innerHTML = `<tr><td colspan="5" class="empty">${esc(err.message)}</td></tr>`;
@@ -176,30 +179,53 @@ async function setUserStatus(id, status) {
   }
 }
 
+async function resetUser(id) {
+  const np = prompt('为该用户设置新密码（至少 8 位）：');
+  if (!np) return;
+  if (np.length < 8) { toast('密码至少 8 位', false); return; }
+  try {
+    await api('/api/t4data/users/' + encodeURIComponent(id) + '/reset', {
+      method: 'POST',
+      body: JSON.stringify({ new_password: np }),
+    });
+    toast('已重置，请线下将新密码告知对方');
+    loadUsers();
+  } catch (err) {
+    toast(err.message, false);
+  }
+}
+
 // ===== 服务密钥 =====
 async function loadKeys() {
   const body = $('#keys-body');
-  body.innerHTML = '<tr><td colspan="5" class="empty">加载中…</td></tr>';
+  body.innerHTML = '<tr><td colspan="7" class="empty">加载中…</td></tr>';
   try {
     const list = await api('/api/t4data/keys');
-    if (!list.length) { body.innerHTML = '<tr><td colspan="5" class="empty">暂无密钥</td></tr>'; return; }
+    if (!list.length) { body.innerHTML = '<tr><td colspan="7" class="empty">暂无密钥</td></tr>'; return; }
     body.innerHTML = '';
     for (const k of list) {
       const tr = document.createElement('tr');
       const revoked = k.status !== 'active';
+      const who = [k.label, k.used_by].filter(Boolean).join(' · ') || '-';
+      const note = k.note ? `<div class="knote">${esc(k.note)}</div>` : '';
       tr.innerHTML =
         `<td><code>${esc(k.id)}</code></td>` +
+        `<td>${esc(who)}${note}</td>` +
         `<td>${esc((k.scope || []).join(', '))}</td>` +
         `<td><span class="badge ${revoked ? 'bad' : 'ok'}">${revoked ? '已吊销' : '有效'}</span></td>` +
         `<td>${fmtTime(k.created_at)}</td>` +
-        `<td>${revoked ? '' : '<button class="ghost sm act" data-id="' + esc(k.id) + '">吊销</button>'}</td>`;
+        `<td>${fmtTime(k.expires_at) || (k.expires_at ? esc(k.expires_at) : '长期')}</td>` +
+        `<td>${revoked ? '' : '<button class="ghost sm act" data-act="revoke" data-id="' + esc(k.id) + '">吊销</button> <button class="ghost sm act" data-act="edit" data-id="' + esc(k.id) + '">备注</button>'}</td>`;
       body.appendChild(tr);
     }
     body.querySelectorAll('.act').forEach((b) =>
-      b.addEventListener('click', () => revokeKey(b.dataset.id))
+      b.addEventListener('click', () => {
+        if (b.dataset.act === 'revoke') revokeKey(b.dataset.id);
+        else editKeyMeta(b.dataset.id);
+      })
     );
   } catch (err) {
-    body.innerHTML = `<tr><td colspan="5" class="empty">${esc(err.message)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="7" class="empty">${esc(err.message)}</td></tr>`;
   }
 }
 
@@ -224,6 +250,54 @@ async function revokeKey(id) {
   } catch (err) {
     toast(err.message, false);
   }
+}
+
+// 编辑密钥备注 / 使用者 / 有效期（不改动 secret 与 scope）
+async function editKeyMeta(id) {
+  const label = prompt('备注名称（label，如 cloudlet 运维 agent）：');
+  if (label === null) return;
+  const usedBy = prompt('使用者（used_by，如 CodeBuddy agent）：') || '';
+  const note = prompt('自由备注（note）：') || '';
+  const expStr = prompt('有效期时间戳（留空=长期）：') || '';
+  const expiresAt = expStr.trim() ? Number(expStr.trim()) : null;
+  try {
+    await api('/api/t4data/keys/' + encodeURIComponent(id) + '/meta', {
+      method: 'POST',
+      body: JSON.stringify({ label, used_by: usedBy, note, expires_at: expiresAt }),
+    });
+    toast('备注已更新');
+    loadKeys();
+  } catch (err) {
+    toast(err.message, false);
+  }
+}
+
+// 签出访问令牌：网关代签一个可直接粘贴的 T3 Bearer 给 agent 使用
+async function mintToken() {
+  const tenant = $('#mint-tenant').value;
+  const scope = $('#mint-scope').value;
+  const ttl = Number($('#mint-ttl').value) || 86400;
+  const note = $('#mint-note').value.trim();
+  const btn = $('#mint-btn');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/t4data/tokens/mint', {
+      method: 'POST',
+      body: JSON.stringify({ tenant, scope, ttl, note }),
+    });
+    $('#mint-token').textContent = r.token;
+    $('#mint-usage').textContent = r.usage || '';
+    $('#mint-result').classList.remove('hidden');
+    toast('令牌已签出（仅显示一次）');
+  } catch (err) {
+    toast(err.message, false);
+  } finally {
+    btn.disabled = false;
+  }
+}
+function copyMint() {
+  const v = $('#mint-token').textContent;
+  navigator.clipboard?.writeText(v).then(() => toast('已复制')).catch(() => toast('复制失败，请手动选择', false));
 }
 
 function copySecret() {
@@ -670,6 +744,8 @@ $('#tabs').addEventListener('click', (e) => {
 $('#users-refresh').addEventListener('click', loadUsers);
 $('#key-issue').addEventListener('click', issueKey);
 $('#key-secret-copy').addEventListener('click', copySecret);
+$('#mint-btn').addEventListener('click', mintToken);
+$('#mint-copy').addEventListener('click', copyMint);
 $('#pw-form').addEventListener('submit', changePassword);
 $('#ver-copy').addEventListener('click', copyVersion);
 $('#deploy-btn').addEventListener('click', deploy);

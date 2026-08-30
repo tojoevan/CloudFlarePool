@@ -3,3 +3,5 @@ node_modules/
 *.log
 .DS_Store
 version.json
+# 网关密钥环：含 T3 服务密钥 raw_secret，等同私钥文件，禁止入库
+keyring.json
