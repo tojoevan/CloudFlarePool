@@ -76,6 +76,7 @@ async function login(e) {
     $('#who').textContent = email + ' · ' + (j.role || 'admin');
     $('#password').value = '';
     showMain();
+    if (ADMIN_ROLE === 'platform') loadDataTenants();
     toast('登录成功');
   } catch (err) {
     $('#login-err').textContent = err.message;
@@ -309,19 +310,19 @@ function copySecret() {
 const DATA_TABLES = {
   todos: {
     label: '待办',
-    cols: [['id', 'ID'], ['owner_openid', '归属'], ['title', '标题'], ['meta', 'meta'], ['tag', '标签'], ['dot', '圆点'], ['shared', '共享'], ['family_id', '家庭'], ['updated_at', '更新']],
+    cols: [['id', 'ID'], ['owner_openid', '归属'], ['tenant_id', '租户'], ['title', '标题'], ['meta', 'meta'], ['tag', '标签'], ['dot', '圆点'], ['shared', '共享'], ['family_id', '家庭'], ['updated_at', '更新']],
     edit: ['title', 'meta', 'tag', 'dot', 'shared', 'family_id'],
     json: ['meta'],
   },
   archive_items: {
     label: '归档',
-    cols: [['id', 'ID'], ['owner_openid', '归属'], ['type', '类型'], ['payload', 'payload'], ['shared', '共享'], ['family_id', '家庭'], ['created_at', '创建'], ['updated_at', '更新']],
+    cols: [['id', 'ID'], ['owner_openid', '归属'], ['tenant_id', '租户'], ['type', '类型'], ['payload', 'payload'], ['shared', '共享'], ['family_id', '家庭'], ['created_at', '创建'], ['updated_at', '更新']],
     edit: ['type', 'payload', 'shared', 'family_id'],
     json: ['payload'],
   },
   collections: {
     label: '通用集合',
-    cols: [['id', 'ID'], ['collection', '集合'], ['owner_openid', '归属'], ['doc', 'doc'], ['updated_at', '更新']],
+    cols: [['id', 'ID'], ['collection', '集合'], ['owner_openid', '归属'], ['tenant_id', '租户'], ['doc', 'doc'], ['updated_at', '更新']],
     edit: ['doc'],
     json: ['doc'],
   },
@@ -333,7 +334,7 @@ const DATA_TABLES = {
   },
 };
 
-const dataState = { table: 'todos', q: '', limit: 20, offset: 0, total: 0 };
+const dataState = { table: 'todos', q: '', tid: '', limit: 20, offset: 0, total: 0 };
 
 function fmtCell(v) {
   if (v === null || v === undefined || v === '') return '-';
@@ -344,6 +345,21 @@ function fmtCell(v) {
   }
   if (typeof v === 'boolean') return v ? '是' : '否';
   return esc(String(v));
+}
+
+// 平台管理员：填充数据浏览器的租户下拉；tenant 角色不会显示该控件
+async function loadDataTenants() {
+  const sel = $('#data-tenant');
+  if (!sel) return;
+  try {
+    const list = await api('/api/t4data/tenants');
+    sel.innerHTML =
+      '<option value="">全部租户</option>' +
+      (list || []).map((t) => `<option value="${esc(t.tenant_id)}">${esc(t.name || t.tenant_id)}</option>`).join('');
+    sel.classList.remove('hidden');
+  } catch (err) {
+    console.warn('加载租户列表失败', err);
+  }
 }
 
 function dataHead() {
@@ -360,6 +376,7 @@ async function loadData() {
   try {
     const params = new URLSearchParams({ limit: dataState.limit, offset: dataState.offset });
     if (dataState.q) params.set('q', dataState.q);
+    if (dataState.tid) params.set('tid', dataState.tid);
     const d = await api(`/api/t4data/rows/${dataState.table}?${params.toString()}`);
     dataState.total = d.total;
     if (!d.rows.length) {
@@ -514,6 +531,7 @@ async function exportData(fmt) {
   try {
     const params = new URLSearchParams();
     if (dataState.q) params.set('q', dataState.q);
+    if (dataState.tid) params.set('tid', dataState.tid);
     const d = await api(`/api/t4data/rows/${dataState.table}/export?${params.toString()}`);
     if (!d.rows.length) { toast('无数据可导出', false); return; }
     const date = new Date().toISOString().slice(0, 10);
@@ -765,6 +783,11 @@ $('#data-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { dataS
 $('#data-refresh').addEventListener('click', () => { dataState.offset = 0; loadData(); });
 $('#data-export-csv').addEventListener('click', () => exportData('csv'));
 $('#data-export-json').addEventListener('click', () => exportData('json'));
+$('#data-tenant').addEventListener('change', (e) => {
+  dataState.tid = e.target.value;
+  dataState.offset = 0;
+  loadData();
+});
 
 // 审计日志事件
 $('#audit-action').addEventListener('change', (e) => { auditState.action = e.target.value; auditState.offset = 0; loadAudit(); });

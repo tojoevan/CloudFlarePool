@@ -460,7 +460,7 @@ adminRoute.post('/accounts/:id/reset', async (c) => {
 const ROW_TABLES = {
   todos: {
     label: '待办',
-    cols: ['id', 'owner_openid', 'title', 'meta', 'tag', 'dot', 'shared', 'family_id', 'updated_at'],
+    cols: ['id', 'owner_openid', 'tenant_id', 'title', 'meta', 'tag', 'dot', 'shared', 'family_id', 'updated_at'],
     searchable: ['title'],
     editable: ['title', 'meta', 'tag', 'dot', 'shared', 'family_id'],
     jsonCols: ['meta'],
@@ -476,7 +476,7 @@ const ROW_TABLES = {
   },
   archive_items: {
     label: '归档',
-    cols: ['id', 'owner_openid', 'type', 'payload', 'shared', 'family_id', 'created_at', 'updated_at'],
+    cols: ['id', 'owner_openid', 'tenant_id', 'type', 'payload', 'shared', 'family_id', 'created_at', 'updated_at'],
     searchable: ['type'],
     editable: ['type', 'payload', 'shared', 'family_id'],
     jsonCols: ['payload'],
@@ -484,7 +484,7 @@ const ROW_TABLES = {
   },
   collections: {
     label: '通用集合',
-    cols: ['id', 'collection', 'owner_openid', 'doc', 'updated_at'],
+    cols: ['id', 'collection', 'owner_openid', 'tenant_id', 'doc', 'updated_at'],
     searchable: ['collection'],
     editable: ['doc'],
     jsonCols: ['doc'],
