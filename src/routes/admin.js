@@ -498,7 +498,7 @@ function parseAdminJson(v) {
 }
 
 // 组装租户可见行的查询条件；返回 { where, params }
-function rowWhere(c, meta, { withOwnerKey = false } = {}) {
+function rowWhere(c, meta, { withOwnerKey = false, collection = null } = {}) {
   const role = c.get('userRole');
   const ownTid = c.get('userTid');
   const where = [];
@@ -514,6 +514,10 @@ function rowWhere(c, meta, { withOwnerKey = false } = {}) {
 
   const owner = c.req.query('owner');
   if (owner && !withOwnerKey) { where.push('owner_openid = ?'); params.push(owner); }
+
+  // collections 表用 id 作主键，但不同集合（如 cloudlet_saves / cloudlet_accounts）
+  // 会复用同一 id，必须按 collection 进一步唯一定位，否则编辑/删除会命中撞 id 的其它行
+  if (collection) { where.push('collection = ?'); params.push(collection); }
 
   const q = c.req.query('q');
   if (q && meta.searchable.length) {
@@ -593,7 +597,7 @@ adminRoute.get('/rows/:table/:id', async (c) => {
   const db = c.env.DB;
   const table = c.req.param('table');
   const id = c.req.param('id');
-  const { where, params } = rowWhere(c, meta, { withOwnerKey: true });
+  const { where, params } = rowWhere(c, meta, { withOwnerKey: true, collection: c.req.query('collection') });
   const row = await db
     .prepare(`SELECT * FROM ${table} WHERE ${where} AND ${meta.key} = ?`)
     .bind(...params, id)
@@ -615,7 +619,7 @@ adminRoute.put('/rows/:table/:id', async (c) => {
   const db = c.env.DB;
   const table = c.req.param('table');
   const id = c.req.param('id');
-  const { where, params } = rowWhere(c, meta, { withOwnerKey: true });
+  const { where, params } = rowWhere(c, meta, { withOwnerKey: true, collection: c.req.query('collection') });
   const exist = await db
     .prepare(`SELECT * FROM ${table} WHERE ${where} AND ${meta.key} = ?`)
     .bind(...params, id)
@@ -662,7 +666,7 @@ adminRoute.delete('/rows/:table/:id', async (c) => {
   const db = c.env.DB;
   const table = c.req.param('table');
   const id = c.req.param('id');
-  const { where, params } = rowWhere(c, meta, { withOwnerKey: true });
+  const { where, params } = rowWhere(c, meta, { withOwnerKey: true, collection: c.req.query('collection') });
   const exist = await db
     .prepare(`SELECT * FROM ${table} WHERE ${where} AND ${meta.key} = ?`)
     .bind(...params, id)

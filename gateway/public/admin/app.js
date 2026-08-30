@@ -405,6 +405,7 @@ async function loadData() {
       for (const row of d.rows) {
         const tr = document.createElement('tr');
         tr.dataset.row = row.id;
+        tr.dataset.collection = row.collection;
         let cells = `<td class="row-actions"><button class="ghost sm act" data-act="edit" data-id="${esc(row.id)}">编辑</button>`;
         if (t.edit.length) cells += ` <button class="ghost sm act danger" data-act="del" data-id="${esc(row.id)}">删除</button>`;
         cells += '</td>';
@@ -444,13 +445,14 @@ async function editRow(id) {
   const t = DATA_TABLES[dataState.table];
   const target = document.querySelector(`#data-body tr[data-row="${CSS.escape(id)}"]`);
   if (!target) return;
+  const coll = target.dataset.collection || '';
   // 已有编辑行则先收起
   const existing = document.querySelector('#data-body tr.edit-row');
   if (existing) existing.remove();
 
   let row;
   try {
-    row = await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}`);
+    row = await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}?collection=${encodeURIComponent(coll)}`);
   } catch (err) {
     toast(err.message, false);
     return;
@@ -502,7 +504,7 @@ async function editRow(id) {
       }
     }
     try {
-      await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) });
+      await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}?collection=${encodeURIComponent(coll)}`, { method: 'PUT', body: JSON.stringify(payload) });
       toast('已保存');
       tr.remove();
       loadData();
@@ -513,9 +515,11 @@ async function editRow(id) {
 }
 
 async function delRow(id) {
+  const tr = document.querySelector(`#data-body tr[data-row="${CSS.escape(id)}"]`);
+  const coll = tr ? (tr.dataset.collection || '') : '';
   if (!confirm(`确认删除 ${dataState.table} 中的记录 ${id}？此操作不可恢复。`)) return;
   try {
-    await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}?collection=${encodeURIComponent(coll)}`, { method: 'DELETE' });
     toast('已删除');
     loadData();
   } catch (err) {
