@@ -39,6 +39,23 @@ function showMain() {
   loadStats();
 }
 
+// 从 T4 JWT 解析 payload（仅取声明用于 UI，不验签）
+function decodeJwtPayload(t) {
+  try {
+    const p = String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(p));
+  } catch (_) { return null; }
+}
+
+// 统一应用会话 UI：登录成功与刷新恢复共用，确保角色、身份、租户下拉都重建
+function applySession(role, whoText) {
+  ADMIN_ROLE = role || 'admin';
+  $('#tab-admins').classList.toggle('hidden', ADMIN_ROLE !== 'platform');
+  $('#who').textContent = whoText || (ADMIN_ROLE || '');
+  showMain();
+  if (ADMIN_ROLE === 'platform') loadDataTenants();
+}
+
 async function api(path, opts = {}) {
   const token = getToken();
   const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
@@ -71,12 +88,9 @@ async function login(e) {
     if (!r.ok) throw new Error(j.error || '登录失败 ' + r.status);
     if (!j.token) throw new Error('未返回令牌');
     setToken(j.token);
-    ADMIN_ROLE = j.role || 'admin';
-    $('#tab-admins').classList.toggle('hidden', ADMIN_ROLE !== 'platform');
-    $('#who').textContent = email + ' · ' + (j.role || 'admin');
     $('#password').value = '';
-    showMain();
-    if (ADMIN_ROLE === 'platform') loadDataTenants();
+    localStorage.setItem('weijiashi_email', email);
+    applySession(j.role || 'admin', email + ' · ' + (j.role || 'admin'));
     toast('登录成功');
   } catch (err) {
     $('#login-err').textContent = err.message;
@@ -897,6 +911,12 @@ async function deploy() {
   // 注意：成功触发后不在此处解禁按钮，改由 pollDeploy 在任务结束时解禁
 }
 
-// 启动：有令牌直接进主界面
-if (getToken()) showMain();
-else showLogin();
+// 启动：有令牌则恢复会话（重建角色/身份/租户下拉），否则进登录页
+if (getToken()) {
+  const payload = decodeJwtPayload(getToken());
+  const email = localStorage.getItem('weijiashi_email') || (payload && payload.sub) || '';
+  const role = (payload && payload.role) || 'admin';
+  applySession(role, email ? `${email} · ${role}` : role);
+} else {
+  showLogin();
+}
