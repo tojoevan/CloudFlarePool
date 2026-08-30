@@ -404,10 +404,11 @@ async function loadData() {
       body.innerHTML = '';
       for (const row of d.rows) {
         const tr = document.createElement('tr');
-        tr.dataset.row = row.id;
-        tr.dataset.collection = row.collection;
-        let cells = `<td class="row-actions"><button class="ghost sm act" data-act="edit" data-id="${esc(row.id)}">编辑</button>`;
-        if (t.edit.length) cells += ` <button class="ghost sm act danger" data-act="del" data-id="${esc(row.id)}">删除</button>`;
+        // id 在不同集合间会撞车（如 cloudlet_saves/cloudlet_accounts 同用 accountId），
+        // 必须用 集合:id 作唯一键，否则 querySelector 会命中另一条
+        tr.dataset.row = (row.collection || '') + '‡' + row.id;
+        let cells = `<td class="row-actions"><button class="ghost sm act" data-act="edit" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">编辑</button>`;
+        if (t.edit.length) cells += ` <button class="ghost sm act danger" data-act="del" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">删除</button>`;
         cells += '</td>';
         for (const [k] of t.cols) cells += `<td>${fmtCell(row[k])}</td>`;
         tr.innerHTML = cells;
@@ -415,8 +416,9 @@ async function loadData() {
       }
       body.querySelectorAll('.act').forEach((b) =>
         b.addEventListener('click', () => {
-          if (b.dataset.act === 'del') delRow(b.dataset.id);
-          else editRow(b.dataset.id);
+          const tr = b.closest('tr');
+          if (b.dataset.act === 'del') delRow(b.dataset.id, b.dataset.coll, tr);
+          else editRow(b.dataset.id, b.dataset.coll, tr);
         })
       );
     }
@@ -441,11 +443,10 @@ function renderPager() {
   if (size) size.addEventListener('change', () => { dataState.limit = +size.value; dataState.offset = 0; loadData(); });
 }
 
-async function editRow(id) {
+async function editRow(id, coll, target) {
   const t = DATA_TABLES[dataState.table];
-  const target = document.querySelector(`#data-body tr[data-row="${CSS.escape(id)}"]`);
   if (!target) return;
-  const coll = target.dataset.collection || '';
+  coll = coll || '';
   // 已有编辑行则先收起
   const existing = document.querySelector('#data-body tr.edit-row');
   if (existing) existing.remove();
@@ -514,9 +515,8 @@ async function editRow(id) {
   });
 }
 
-async function delRow(id) {
-  const tr = document.querySelector(`#data-body tr[data-row="${CSS.escape(id)}"]`);
-  const coll = tr ? (tr.dataset.collection || '') : '';
+async function delRow(id, coll, target) {
+  coll = coll || '';
   if (!confirm(`确认删除 ${dataState.table} 中的记录 ${id}？此操作不可恢复。`)) return;
   try {
     await api(`/api/t4data/rows/${dataState.table}/${encodeURIComponent(id)}?collection=${encodeURIComponent(coll)}`, { method: 'DELETE' });
