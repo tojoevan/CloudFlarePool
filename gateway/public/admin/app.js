@@ -347,15 +347,20 @@ function fmtCell(v) {
   return esc(String(v));
 }
 
-// 平台管理员：填充数据浏览器的租户下拉；tenant 角色不会显示该控件
+// 平台管理员：填充数据浏览器的租户下拉；tenant 角色不会显示该控件。
+// 复用 /api/t4data/stats 返回的 d.tenants（数据湖无独立 /admin/tenants 端点，单独调用会 404）。
 async function loadDataTenants() {
   const sel = $('#data-tenant');
   if (!sel) return;
   try {
-    const list = await api('/api/t4data/tenants');
+    const d = await api('/api/t4data/stats');
+    const list = (d && d.tenants) || [];
     sel.innerHTML =
       '<option value="">全部租户</option>' +
-      (list || []).map((t) => `<option value="${esc(t.tenant_id)}">${esc(t.name || t.tenant_id)}</option>`).join('');
+      list.map((t) => {
+        const tt = t.tenant || t; // stats 返回 {tenant,counts}，兜底兼容裸对象
+        return `<option value="${esc(tt.tenant_id)}">${esc(tt.name || tt.tenant_id)}</option>`;
+      }).join('');
     sel.classList.remove('hidden');
   } catch (err) {
     console.warn('加载租户列表失败', err);
