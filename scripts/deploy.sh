@@ -66,6 +66,20 @@ cp -r gateway/public/admin/. "$WEB_ROOT/public/admin/"
 cp -r gateway/public/spa/. "$WEB_ROOT/public/spa/" 2>/dev/null || true
 echo "[deploy] SPA synced"
 
+# 同步网关运行时代码到 WEB_ROOT（关键修复）。
+# 旧设计只同步 SPA，导致改 server.js 后 WEB_ROOT 里跑的仍是旧代码——
+# 「版本更新」拉了新代码却发不到运行目录，新增路由（如 /api/family）永远 404。
+# 这里在 git pull 之后把 server.js + lib 拷到 WEB_ROOT/gateway，使按钮真正完整部署网关。
+# node_modules 沿用 WEB_ROOT 既有副本；若缺失则软链到 REPO_DIR/node_modules（deploy.sh 已 npm ci 过）。
+echo "[deploy] sync gateway runtime to WEB_ROOT..."
+mkdir -p "$WEB_ROOT/gateway"
+cp -r gateway/server.js gateway/lib "$WEB_ROOT/gateway/" 2>/dev/null || true
+if [ ! -e "$WEB_ROOT/gateway/node_modules" ] && [ -d "$REPO_DIR/node_modules" ]; then
+  ln -sfn "$REPO_DIR/node_modules" "$WEB_ROOT/gateway/node_modules"
+  echo "[deploy] symlinked node_modules -> $REPO_DIR/node_modules"
+fi
+echo "[deploy] gateway runtime synced"
+
 # 可选：重启网关（仅 server.js 变更时才需要）。默认不重启，避免部署期间中断；
 # 如需在 server.js 改动后自动重启，在网关 .env 配置 DEPLOY_RESTART_CMD。
 if [ -n "${DEPLOY_RESTART_CMD:-}" ]; then
