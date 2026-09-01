@@ -104,3 +104,40 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   count        INTEGER,
   PRIMARY KEY (bucket_key, window_start)
 );
+
+-- ===== 家庭（多家庭模型，每人最多 3 个）=====
+-- 家庭主表：每个家庭一条记录，owner_openid 为创建者。
+CREATE TABLE IF NOT EXISTS families (
+  family_id   TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL,
+  name        TEXT,
+  owner_openid TEXT NOT NULL,
+  created_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_families_tenant ON families(tenant_id);
+
+-- 家庭成员：一个 openid 在同一家庭只能一条（PK 防重复加入）；
+-- 跨家庭允许多条，靠应用层「每人 ≤3」约束（D1 无跨行触发器）。
+CREATE TABLE IF NOT EXISTS family_members (
+  family_id   TEXT NOT NULL,
+  openid      TEXT NOT NULL,
+  role        TEXT NOT NULL DEFAULT 'member', -- 'owner' | 'member'
+  nickname    TEXT,
+  invited_by  TEXT,
+  joined_at   INTEGER,
+  PRIMARY KEY (family_id, openid)
+);
+CREATE INDEX IF NOT EXISTS idx_fam_members_openid ON family_members(openid);
+CREATE INDEX IF NOT EXISTS idx_fam_members_family ON family_members(family_id);
+
+-- 邀请凭证：随机不可猜 token + 有效期 + 一次性使用标记。
+-- 接受时置 used_at 防重放；过期/已用均不可接受。
+CREATE TABLE IF NOT EXISTS family_invites (
+  code          TEXT PRIMARY KEY,
+  family_id     TEXT NOT NULL,
+  inviter_openid TEXT NOT NULL,
+  created_at    INTEGER,
+  expires_at    INTEGER,
+  used_at       INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fam_invites_family ON family_invites(family_id);

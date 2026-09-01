@@ -107,9 +107,9 @@ async function wechatCode2Session(code) {
 }
 
 // ---- 流式反代到数据湖（JSON 和图片上传都走这条） ----
-function proxyToDataLake(req, res, tenantId) {
-  const rest = req.url.replace(/^\/api\/data\/?/, ''); // 去掉前缀后的资源路径
-  const target = new URL(`/t/${encodeURIComponent(tenantId)}/${rest}`, CFG.dataLakeBase);
+// restPath 为 /t/{tenantId}/ 之后的资源路径（如 "todos" 或 "family/invite"）。
+function proxyToLake(req, res, tenantId, restPath) {
+  const target = new URL(`/t/${encodeURIComponent(tenantId)}/${restPath}`, CFG.dataLakeBase);
 
   const headers = { ...req.headers };
   delete headers['host'];
@@ -343,7 +343,23 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       req.ctx = { openid: claims.openid };
-      proxyToDataLake(req, res, claims.tenantId || CFG.tenantId);
+      proxyToLake(req, res, claims.tenantId || CFG.tenantId, req.url.replace(/^\/api\/data\/?/, ''));
+      return;
+    }
+
+    // 4a) 家庭（多家庭模型）：与 /api/data 同通道，转发到 /t/{tenant}/family/*
+    if (path.startsWith('/api/family/')) {
+      const token = bearerFrom(req);
+      let claims;
+      try {
+        claims = verifySession(token, CFG.sessionSecret);
+      } catch {
+        sendJson(res, 401, { error: 'unauthorized' });
+        return;
+      }
+      req.ctx = { openid: claims.openid };
+      const rest = 'family/' + req.url.replace(/^\/api\/family\/?/, '');
+      proxyToLake(req, res, claims.tenantId || CFG.tenantId, rest);
       return;
     }
 

@@ -847,6 +847,101 @@ test('RateLimit: service key over write limit -> 429 (pre-seeded counter)', asyn
   await db.prepare('DELETE FROM rate_limits WHERE bucket_key = ?').bind('key:' + issued.body.id).run();
 });
 
+// ===== 家庭（多家庭模型，每人最多 3 个）=====
+test('family: create + invite + accept + mine + members + owner禁退 + transfer + leave', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+
+  // u1 创建家庭
+  let r = await jres(await req('POST', '/t/weijiashi/family', { headers: { 'X-User-Id': 'u1' }, body: { name: '我家' } }));
+  assert.equal(r.status, 200);
+  const f1 = r.body.family_id;
+  assert.equal(r.body.role, 'owner');
+
+  // u1 列表能看到自己创建的家庭
+  r = await jres(await req('GET', '/t/weijiashi/family/mine', { headers: { 'X-User-Id': 'u1' } }));
+  assert.equal(r.status, 200);
+  assert.ok(r.body.some((f) => f.family_id === f1), 'u1 应能看到自己创建的家庭');
+
+  // u1 生成邀请
+  r = await jres(await req('POST', '/t/weijiashi/family/invite', { headers: { 'X-User-Id': 'u1' }, body: { family_id: f1 } }));
+  assert.equal(r.status, 200);
+  const c1 = r.body.code;
+
+  // 预览邀请（未接受也可看）
+  r = await jres(await req('GET', '/t/weijiashi/family/invite/info?code=' + c1, { headers: { 'X-User-Id': 'u1' } }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.family_id, f1);
+
+  // u2 接受
+  r = await jres(await req('POST', '/t/weijiashi/family/accept', { headers: { 'X-User-Id': 'u2' }, body: { code: c1 } }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.joined, true);
+  assert.equal(r.body.role, 'member');
+
+  // u2 列表含 f1
+  r = await jres(await req('GET', '/t/weijiashi/family/mine', { headers: { 'X-User-Id': 'u2' } }));
+  assert.ok(r.body.some((f) => f.family_id === f1), 'u2 接受后应能看到 f1');
+
+  // 成员列表：u1=owner, u2=member，is_self 标记正确
+  r = await jres(await req('GET', '/t/weijiashi/family/members?family_id=' + f1, { headers: { 'X-User-Id': 'u2' } }));
+  assert.equal(r.status, 200);
+  const u1row = r.body.find((m) => m.openid === 'u1');
+  const u2row = r.body.find((m) => m.openid === 'u2');
+  assert.equal(u1row.role, 'owner');
+  assert.equal(u2row.role, 'member');
+  assert.equal(u2row.is_self, true);
+  assert.equal(u1row.is_self, false);
+
+  // 非成员不能看成员列表
+  r = await jres(await req('GET', '/t/weijiashi/family/members?family_id=' + f1, { headers: { 'X-User-Id': 'stranger' } }));
+  assert.equal(r.status, 403);
+
+  // owner 不能直接退出
+  r = await jres(await req('POST', '/t/weijiashi/family/leave', { headers: { 'X-User-Id': 'u1' }, body: { family_id: f1 } }));
+  assert.equal(r.status, 403);
+
+  // u1 转让给 u2，再退出
+  r = await jres(await req('POST', '/t/weijiashi/family/transfer', { headers: { 'X-User-Id': 'u1' }, body: { family_id: f1, to_openid: 'u2' } }));
+  assert.equal(r.status, 200);
+  r = await jres(await req('POST', '/t/weijiashi/family/leave', { headers: { 'X-User-Id': 'u1' }, body: { family_id: f1 } }));
+  assert.equal(r.status, 200);
+  r = await jres(await req('GET', '/t/weijiashi/family/mine', { headers: { 'X-User-Id': 'u1' } }));
+  assert.ok(!r.body.some((f) => f.family_id === f1), 'u1 退出后不应再看到 f1');
+});
+
+test('family: 每人最多加入 3 个家庭', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  for (let i = 1; i <= 3; i++) {
+    const r = await jres(await req('POST', '/t/weijiashi/family', { headers: { 'X-User-Id': 'u3' }, body: { name: 'F' + i } }));
+    assert.equal(r.status, 200, '前 3 个家庭应创建成功');
+  }
+  const r = await jres(await req('POST', '/t/weijiashi/family', { headers: { 'X-User-Id': 'u3' }, body: { name: 'F4' } }));
+  assert.equal(r.status, 429, '第 4 个家庭必须被拒（上限 3）');
+});
+
+test('family: 重复接受 -> joined:false；已用邀请 -> 409', async () => {
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  const c = await jres(await req('POST', '/t/weijiashi/family', { headers: { 'X-User-Id': 'a1' }, body: { name: 'A家' } }));
+  const fa = c.body.family_id;
+  const inv = await jres(await req('POST', '/t/weijiashi/family/invite', { headers: { 'X-User-Id': 'a1' }, body: { family_id: fa } }));
+  const code1 = inv.body.code;
+
+  // a2 首次接受
+  let r = await jres(await req('POST', '/t/weijiashi/family/accept', { headers: { 'X-User-Id': 'a2' }, body: { code: code1 } }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.joined, true);
+
+  // a1 再发一个新邀请；a2 已是成员，接受新邀请 -> joined:false（不重复写入）
+  const inv2 = await jres(await req('POST', '/t/weijiashi/family/invite', { headers: { 'X-User-Id': 'a1' }, body: { family_id: fa } }));
+  r = await jres(await req('POST', '/t/weijiashi/family/accept', { headers: { 'X-User-Id': 'a2' }, body: { code: inv2.body.code } }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.joined, false, '已是成员应返回 joined:false，避免假成功');
+
+  // 重复用 code1（已 used_at）-> 409
+  r = await jres(await req('POST', '/t/weijiashi/family/accept', { headers: { 'X-User-Id': 'a3' }, body: { code: code1 } }));
+  assert.equal(r.status, 409, '已用邀请必须 409');
+});
+
 // Miniflare keeps a workerd subprocess alive; dispose it so the process
 // can exit. Without this the test hangs forever.
 test.after(async () => {

@@ -3,6 +3,7 @@ import { healthRoute } from './routes/health.js';
 import { tenantsRoute } from './routes/tenants.js';
 import { appsRoute } from './routes/apps.js';
 import { dataRoute } from './routes/data.js';
+import { familyRoute } from './routes/family.js';
 import { migrate } from './lib/schema.js';
 import { dualGuard } from './lib/auth.js';
 import { accountRoute } from './routes/account.js';
@@ -61,6 +62,7 @@ app.post('/__setup', async (c) => {
 app.route('/tenants', tenantsRoute); // admin tenant registry
 app.route('/v1/a', appsRoute); // app-dimension management (Phase 1)
 app.route('/t', dataRoute); // /t/:tenant/* data API
+app.route('/t', familyRoute); // /t/:tenant/family/* 家庭（多家庭模型）
 app.route('/v1/a', keysRoute); // T3 api_keys management (Phase 2)
 app.route('/internal', accountRoute); // internal account verification (Phase 2)
 app.route('/admin', adminRoute); // T4 admin read-only dashboard (Phase 3)

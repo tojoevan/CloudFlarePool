@@ -159,6 +159,39 @@ export const CREATE_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_audit_tenant ON admin_audit_log(tenant_id, created_at)`,
 
+  // ===== Multi-family model (微家事 家庭功能) =====
+  // 一人可属多个家庭（上限 MAX_FAMILIES_PER_USER，应用层强制）；邀请码 7 天有效、一次性使用。
+  `CREATE TABLE IF NOT EXISTS families (
+    family_id    TEXT PRIMARY KEY,
+    tenant_id    TEXT NOT NULL,
+    name         TEXT,
+    owner_openid TEXT NOT NULL,
+    created_at   INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_families_tenant ON families(tenant_id)`,
+
+  `CREATE TABLE IF NOT EXISTS family_members (
+    family_id   TEXT NOT NULL,
+    openid      TEXT NOT NULL,
+    role        TEXT NOT NULL DEFAULT 'member',  -- owner | member
+    nickname    TEXT,
+    invited_by  TEXT,
+    joined_at   INTEGER,
+    PRIMARY KEY (family_id, openid)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_fam_members_openid ON family_members(openid)`,
+  `CREATE INDEX IF NOT EXISTS idx_fam_members_family ON family_members(family_id)`,
+
+  `CREATE TABLE IF NOT EXISTS family_invites (
+    code           TEXT PRIMARY KEY,
+    family_id      TEXT NOT NULL,
+    inviter_openid TEXT NOT NULL,
+    created_at     INTEGER,
+    expires_at     INTEGER,
+    used_at        INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_fam_invites_family ON family_invites(family_id)`,
+
   // ===== Rate limiting (fixed-window counter, D1-backed) =====
   `CREATE TABLE IF NOT EXISTS rate_limits (
     bucket_key   TEXT,
