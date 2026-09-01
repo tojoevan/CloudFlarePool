@@ -348,7 +348,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // 4a) 家庭（多家庭模型）：与 /api/data 同通道，转发到 /t/{tenant}/family/*
-    if (path.startsWith('/api/family/')) {
+    // 注意：前端 adapter 发创建请求时用的是 /api/family（无尾斜杠），且 worker 路由
+    // /:tenant/family 也是无尾斜杠（Hono strict），故转发时不能硬编码尾斜杠。
+    if (path === '/api/family' || path.startsWith('/api/family/')) {
       const token = bearerFrom(req);
       let claims;
       try {
@@ -358,7 +360,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       req.ctx = { openid: claims.openid };
-      const rest = 'family/' + req.url.replace(/^\/api\/family\/?/, '');
+      const sub = req.url.replace(/^\/api\/family\/?/, ''); // '' 或 'mine'/'invite'...
+      const rest = 'family' + (sub ? '/' + sub : '');
       proxyToLake(req, res, claims.tenantId || CFG.tenantId, rest);
       return;
     }
