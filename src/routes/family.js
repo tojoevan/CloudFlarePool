@@ -180,6 +180,22 @@ familyRoute.get('/:tenant/family/members', async (c) => {
   })));
 });
 
+// 当前成员更新自己在家庭内的昵称（用于补全创建家庭时漏存的昵称等场景）。
+familyRoute.post('/:tenant/family/nickname', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const ow = ownerOf(c);
+  const b = await c.req.json().catch(() => ({}));
+  const familyId = b.family_id;
+  const nickname = (b.nickname || '').toString().slice(0, 32);
+  if (!familyId) return c.json({ error: 'family_id required' }, 400);
+  if (!(await membership(c, familyId, ow))) return c.json({ error: '你不是该家庭成员' }, 403);
+  await c.env.DB.prepare(
+    `UPDATE family_members SET nickname = ? WHERE family_id = ? AND openid = ?`
+  ).bind(nickname, familyId, ow).run();
+  return c.json({ ok: true });
+});
+
 familyRoute.post('/:tenant/family/leave', async (c) => {
   const tenant = await tenantOr404(c);
   if (!tenant) return c.json({ error: 'tenant not found' }, 404);
