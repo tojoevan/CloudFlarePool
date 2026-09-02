@@ -106,6 +106,25 @@ async function wechatCode2Session(code) {
   return { openid: json.openid, unionid: json.unionid };
 }
 
+// ---- 数据湖长连接池 ----
+// Node 默认全局 Agent 不复用连接（keepAlive:false），每个反代请求都要重付一次跨境
+// TCP+TLS 握手（实测 0.4-1.3s）。这里为数据湖通道建共享 keep-alive Agent，连接复用
+// 后单跳约 190ms。Cloudflare 侧会主动关闭空闲连接，Agent 会随之回收套接字，无需
+// 手动清理。scheduling:'lifo' 让最热的连接优先被复用。
+const lakeAgentHttps = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 15000,
+  maxSockets: 16,
+  maxFreeSockets: 8,
+  scheduling: 'lifo',
+});
+const lakeAgentHttp = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 15000,
+  maxSockets: 16,
+  maxFreeSockets: 8,
+});
+
 // ---- 流式反代到数据湖（JSON 和图片上传都走这条） ----
 // restPath 为 /t/{tenantId}/ 之后的资源路径（如 "todos" 或 "family/invite"）。
 function proxyToLake(req, res, tenantId, restPath) {
@@ -118,7 +137,8 @@ function proxyToLake(req, res, tenantId, restPath) {
   headers['x-user-id'] = req.ctx.openid;        // 注入真实用户身份
 
   const transport = target.protocol === 'https:' ? https : http;
-  const proxyReq = transport.request(target, { method: req.method, headers }, (proxyRes) => {
+  const agent = target.protocol === 'https:' ? lakeAgentHttps : lakeAgentHttp;
+  const proxyReq = transport.request(target, { method: req.method, headers, agent }, (proxyRes) => {
     res.writeHead(proxyRes.statusCode || 502, filterOutgoing(proxyRes.headers));
     proxyRes.pipe(res);
   });
