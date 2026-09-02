@@ -98,8 +98,8 @@ dataRoute.post('/:tenant/todos', async (c) => {
   const ow = ownerOf(c);
 
   await c.env.DB.prepare(
-    `INSERT INTO todos (id, tenant_id, owner_openid, title, meta, tag, dot, shared, family_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO todos (id, tenant_id, owner_openid, title, meta, tag, dot, shared, family_id, co_edit, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       id,
@@ -111,6 +111,7 @@ dataRoute.post('/:tenant/todos', async (c) => {
       b.dot || null,
       b.shared ? 1 : 0,
       b.family_id || null,
+      b.co_edit ? 1 : 0,
       now()
     )
     .run();
@@ -164,11 +165,16 @@ dataRoute.put('/:tenant/todos/:id', async (c) => {
     .bind(tenant, id)
     .first();
   if (!exist) return c.json({ error: 'not found' }, 404);
-  if (exist.owner_openid !== ownerOf(c)) return c.json({ error: 'forbidden' }, 403);
 
   const b = await c.req.json().catch(() => ({}));
+  // 非 owner 仅当该项开放协作编辑（co_edit=1）才允许改内容；否则 403。
+  // （"勾完成"走独立的 /family/shared/done 端点，对家庭成员开放。）
+  const ow = ownerOf(c);
+  if (exist.owner_openid !== ow && !(exist.shared === 1 && exist.co_edit === 1)) {
+    return c.json({ error: 'forbidden' }, 403);
+  }
   await c.env.DB.prepare(
-    `UPDATE todos SET title=?, meta=?, tag=?, dot=?, shared=?, family_id=?, updated_at=?
+    `UPDATE todos SET title=?, meta=?, tag=?, dot=?, shared=?, family_id=?, co_edit=?, updated_at=?
      WHERE tenant_id=? AND id=?`
   )
     .bind(
@@ -178,6 +184,8 @@ dataRoute.put('/:tenant/todos/:id', async (c) => {
       b.dot ?? exist.dot,
       b.shared !== undefined ? (b.shared ? 1 : 0) : exist.shared,
       b.family_id ?? exist.family_id,
+      // co_edit 仅 owner 可改；非 owner 即使携带也忽略，保留原值
+      (b.co_edit !== undefined && exist.owner_openid === ow) ? (b.co_edit ? 1 : 0) : exist.co_edit,
       now(),
       tenant,
       id
@@ -244,8 +252,8 @@ dataRoute.post('/:tenant/archive', async (c) => {
   const ow = ownerOf(c);
 
   await c.env.DB.prepare(
-    `INSERT INTO archive_items (id, tenant_id, owner_openid, type, payload, shared, family_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO archive_items (id, tenant_id, owner_openid, type, payload, shared, family_id, co_edit, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       id,
@@ -255,6 +263,7 @@ dataRoute.post('/:tenant/archive', async (c) => {
       JSON.stringify(b.payload || {}),
       b.shared ? 1 : 0,
       b.family_id || null,
+      b.co_edit ? 1 : 0,
       now(),
       now()
     )
@@ -294,11 +303,15 @@ dataRoute.put('/:tenant/archive/:id', async (c) => {
     .bind(tenant, id)
     .first();
   if (!exist) return c.json({ error: 'not found' }, 404);
-  if (exist.owner_openid !== ownerOf(c)) return c.json({ error: 'forbidden' }, 403);
 
   const b = await c.req.json().catch(() => ({}));
+  // 非 owner 仅当该项开放协作编辑（co_edit=1）才允许改内容；否则 403。
+  const ow = ownerOf(c);
+  if (exist.owner_openid !== ow && !(exist.shared === 1 && exist.co_edit === 1)) {
+    return c.json({ error: 'forbidden' }, 403);
+  }
   await c.env.DB.prepare(
-    `UPDATE archive_items SET type=?, payload=?, shared=?, family_id=?, updated_at=?
+    `UPDATE archive_items SET type=?, payload=?, shared=?, family_id=?, co_edit=?, updated_at=?
      WHERE tenant_id=? AND id=?`
   )
     .bind(
@@ -306,6 +319,7 @@ dataRoute.put('/:tenant/archive/:id', async (c) => {
       b.payload !== undefined ? JSON.stringify(b.payload) : exist.payload,
       b.shared !== undefined ? (b.shared ? 1 : 0) : exist.shared,
       b.family_id ?? exist.family_id,
+      (b.co_edit !== undefined && exist.owner_openid === ow) ? (b.co_edit ? 1 : 0) : exist.co_edit,
       now(),
       tenant,
       id
@@ -352,14 +366,14 @@ dataRoute.get('/:tenant/family/shared', async (c) => {
   }
 
   const todos = await c.env.DB.prepare(
-    `SELECT 'todo' AS kind, id, title, meta, tag, dot, family_id, owner_openid, updated_at
+    `SELECT 'todo' AS kind, id, title, meta, tag, dot, family_id, owner_openid, co_edit, updated_at
        FROM todos WHERE ${cond} ORDER BY updated_at DESC`
   )
     .bind(...p)
     .all();
 
   const archive = await c.env.DB.prepare(
-    `SELECT 'archive' AS kind, id, type, payload, family_id, owner_openid, updated_at
+    `SELECT 'archive' AS kind, id, type, payload, family_id, owner_openid, co_edit, updated_at
        FROM archive_items WHERE ${cond} ORDER BY updated_at DESC`
   )
     .bind(...p)
@@ -369,6 +383,68 @@ dataRoute.get('/:tenant/family/shared', async (c) => {
     todos: todos.results.map(parseTodo),
     archive: archive.results.map(parseArchive),
   });
+});
+
+// 协作编辑开关：仅所有者可切换某共享项的 co_edit（family 成员是否可改内容）。
+dataRoute.post('/:tenant/family/shared/perm', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const id = b.id;
+  const coEdit = b.co_edit ? 1 : 0;
+  if (!id) return c.json({ error: 'id required' }, 400);
+
+  const todo = await c.env.DB.prepare(
+    `SELECT id, owner_openid FROM todos WHERE tenant_id = ? AND id = ?`
+  ).bind(tenant, id).first();
+  if (todo) {
+    if (todo.owner_openid !== ownerOf(c)) return c.json({ error: 'forbidden' }, 403);
+    await c.env.DB.prepare(
+      `UPDATE todos SET co_edit = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`
+    ).bind(coEdit, now(), tenant, id).run();
+    return c.json({ ok: true, co_edit: coEdit });
+  }
+  const arc = await c.env.DB.prepare(
+    `SELECT id, owner_openid FROM archive_items WHERE tenant_id = ? AND id = ?`
+  ).bind(tenant, id).first();
+  if (arc) {
+    if (arc.owner_openid !== ownerOf(c)) return c.json({ error: 'forbidden' }, 403);
+    await c.env.DB.prepare(
+      `UPDATE archive_items SET co_edit = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`
+    ).bind(coEdit, now(), tenant, id).run();
+    return c.json({ ok: true, co_edit: coEdit });
+  }
+  return c.json({ error: 'not found' }, 404);
+});
+
+// 家庭成员勾选完成：仅对「已共享」的待办开放，且要求请求者是该项所属家庭的成员。
+// 与内容编辑（受 co_edit 门控）解耦——只读成员也能标记完成（家庭协作最常做的动作）。
+dataRoute.post('/:tenant/family/shared/done', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const id = b.id;
+  const done = b.done ? 1 : 0;
+  if (!id) return c.json({ error: 'id required' }, 400);
+
+  const row = await c.env.DB.prepare(
+    `SELECT * FROM todos WHERE tenant_id = ? AND id = ?`
+  ).bind(tenant, id).first();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  if (row.shared !== 1 || !row.family_id) return c.json({ error: 'forbidden' }, 403);
+  // 校验请求者是该家庭（family_id）的成员
+  const mem = await c.env.DB.prepare(
+    `SELECT 1 AS ok FROM family_members WHERE family_id = ? AND openid = ?`
+  ).bind(row.family_id, ownerOf(c)).first();
+  if (!mem) return c.json({ error: 'forbidden' }, 403);
+
+  let meta = {};
+  try { meta = JSON.parse(row.meta || '{}'); } catch { /* keep empty */ }
+  meta.done = done;
+  await c.env.DB.prepare(
+    `UPDATE todos SET meta = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`
+  ).bind(JSON.stringify(meta), now(), tenant, id).run();
+  return c.json({ ok: true, done });
 });
 
 // ---------------------------------------------------------------------------

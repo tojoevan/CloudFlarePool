@@ -59,6 +59,7 @@ export const CREATE_STATEMENTS = [
     dot          TEXT,                    -- personal | family marker
     shared       INTEGER DEFAULT 0,       -- 1 => visible in family/shared
     family_id    TEXT,
+    co_edit      INTEGER DEFAULT 0,       -- 1 => 家庭成员可协作编辑（仅 owner 可改）
     updated_at   INTEGER,
     PRIMARY KEY (tenant_id, id)
   )`,
@@ -81,6 +82,7 @@ export const CREATE_STATEMENTS = [
     payload      TEXT,                    -- JSON blob
     shared       INTEGER DEFAULT 0,
     family_id    TEXT,
+    co_edit      INTEGER DEFAULT 0,       -- 1 => 家庭成员可协作编辑（仅 owner 可改）
     created_at   INTEGER,
     updated_at   INTEGER,
     PRIMARY KEY (tenant_id, id)
@@ -213,6 +215,20 @@ export async function migrate(db) {
   await ensureTenantAppId(db);
   // 已上线的 admin_accounts 表可能缺少 recovery_hash（恢复码）列，幂等补齐。
   await ensureAdminRecoveryHash(db);
+  // 家庭共享项需要 co_edit 协作编辑开关列，幂等补齐（微家事 0.1.7）。
+  await ensureCoEdit(db);
+}
+
+// Idempotent: add `co_edit` to already-existing `todos` / `archive_items` tables
+// if missing (the collaboration-edit permission flag for family shared items).
+async function ensureCoEdit(db) {
+  for (const table of ['todos', 'archive_items']) {
+    const cols = await db.prepare(`PRAGMA table_info(${table})`).all();
+    const has = (cols.results || []).some((c) => c.name === 'co_edit');
+    if (!has) {
+      await db.prepare(`ALTER TABLE ${table} ADD COLUMN co_edit INTEGER DEFAULT 0`).run();
+    }
+  }
 }
 
 // Idempotent: add `recovery_hash` to an already-existing `admin_accounts` table
