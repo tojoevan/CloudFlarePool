@@ -352,14 +352,14 @@ dataRoute.get('/:tenant/family/shared', async (c) => {
   }
 
   const todos = await c.env.DB.prepare(
-    `SELECT 'todo' AS kind, id, title, meta, tag, dot, family_id, updated_at
+    `SELECT 'todo' AS kind, id, title, meta, tag, dot, family_id, owner_openid, updated_at
        FROM todos WHERE ${cond} ORDER BY updated_at DESC`
   )
     .bind(...p)
     .all();
 
   const archive = await c.env.DB.prepare(
-    `SELECT 'archive' AS kind, id, type, payload, family_id, updated_at
+    `SELECT 'archive' AS kind, id, type, payload, family_id, owner_openid, updated_at
        FROM archive_items WHERE ${cond} ORDER BY updated_at DESC`
   )
     .bind(...p)
