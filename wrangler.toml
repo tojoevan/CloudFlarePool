@@ -13,6 +13,12 @@ routes = [
   { pattern = "data.kapibala.icu", custom_domain = true }
 ]
 
+# GIT_HEAD 兜底值：管理后台版本矩阵读它。deploy.sh 部署时用 --var 覆盖为实际 HEAD；
+# 此值仅在"手动裸 wrangler deploy（不带 --var）"时生效，防止版本矩阵显示 null（已踩坑 3 次）。
+# 发版后请顺手更新为当前短 sha。
+[vars]
+GIT_HEAD = "ab2c309"
+
 # Single D1 database. Multi-tenancy is logical (tenant_id column), not per-DB.
 [[d1_databases]]
 binding = "DB"
