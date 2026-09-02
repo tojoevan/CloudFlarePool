@@ -74,6 +74,27 @@ export const CREATE_STATEMENTS = [
     PRIMARY KEY (tenant_id, owner_openid)
   )`,
 
+  // 事务（按项独立存储，可跨家庭成员聚合，支持 room 分组与 co_edit 协作）
+  // 2026-09-03 起替代「整篇 sections 文档」模型：每个事务是一项独立行，
+  // 与 todos 同构（shared/family_id/co_edit），额外带 room（按物品归并的分组名）。
+  `CREATE TABLE IF NOT EXISTS tasks (
+    id           TEXT,
+    tenant_id    TEXT,
+    owner_openid TEXT,
+    title        TEXT,
+    meta         TEXT,                    -- JSON: { text, photos, due, done }
+    tag          TEXT,
+    dot          TEXT,                    -- personal | family marker
+    shared       INTEGER DEFAULT 0,       -- 1 => 可见家庭共享聚合流
+    family_id    TEXT,
+    co_edit      INTEGER DEFAULT 0,       -- 1 => 家庭成员可协作编辑（仅 owner 可改）
+    room         TEXT,                    -- 分组 / 物品名（按物品归并）
+    updated_at   INTEGER,
+    PRIMARY KEY (tenant_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(tenant_id, owner_openid)`,
+  `CREATE INDEX IF NOT EXISTS idx_tasks_shared ON tasks(tenant_id, shared)`,
+
   `CREATE TABLE IF NOT EXISTS archive_items (
     id           TEXT,
     tenant_id    TEXT,

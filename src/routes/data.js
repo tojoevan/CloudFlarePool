@@ -213,30 +213,121 @@ dataRoute.delete('/:tenant/todos/:id', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// TASKS DOC (single JSON document per user)
+// TASKS (per-item storage; supports room grouping + family sharing)
+// 2026-09-03 起替代「整篇 sections 文档」模型，每个事务为独立行，可跨成员聚合。
 // ---------------------------------------------------------------------------
-dataRoute.get('/:tenant/tasks', async (c) => {
-  const tenant = await tenantOr404(c);
-  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
-  const row = await c.env.DB.prepare(
-    `SELECT sections FROM tasks_doc WHERE tenant_id = ? AND owner_openid = ?`
-  )
-    .bind(tenant, ownerOf(c))
-    .first();
-  return c.json({ sections: row ? JSON.parse(row.sections) : [] });
-});
-
-dataRoute.put('/:tenant/tasks', async (c) => {
+dataRoute.post('/:tenant/tasks', async (c) => {
   const tenant = await tenantOr404(c);
   if (!tenant) return c.json({ error: 'tenant not found' }, 404);
   const b = await c.req.json().catch(() => ({}));
-  const sections = JSON.stringify(b.sections || []);
+  const id = b.id || crypto.randomUUID();
+  const ow = ownerOf(c);
   await c.env.DB.prepare(
-    `INSERT INTO tasks_doc (tenant_id, owner_openid, sections, updated_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(tenant_id, owner_openid) DO UPDATE SET sections=excluded.sections, updated_at=excluded.updated_at`
+    `INSERT INTO tasks (id, tenant_id, owner_openid, title, meta, tag, dot, shared, family_id, co_edit, room, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(tenant, ownerOf(c), sections, now())
+    .bind(
+      id, tenant, ow,
+      b.title || '',
+      JSON.stringify(b.meta || {}),
+      b.tag || null,
+      b.dot || null,
+      b.shared ? 1 : 0,
+      b.family_id || null,
+      b.co_edit ? 1 : 0,
+      b.room || null,
+      now()
+    )
+    .run();
+  return c.json({ ok: true, id, owner: ow });
+});
+
+dataRoute.get('/:tenant/tasks', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const ownerQ = c.req.query('owner') || 'me';
+  const ow = ownerOf(c);
+  let where = 'tenant_id = ?';
+  const p = [tenant];
+  if (ownerQ === 'me') {
+    where += ' AND owner_openid = ?';
+    p.push(ow);
+  } else if (ownerQ !== 'all') {
+    where += ' AND owner_openid = ?';
+    p.push(ownerQ);
+  }
+  const { results } = await c.env.DB.prepare(
+    `SELECT * FROM tasks WHERE ${where} ORDER BY updated_at DESC`
+  )
+    .bind(...p)
+    .all();
+  return c.json(results.map(parseTodo));
+});
+
+dataRoute.get('/:tenant/tasks/:id', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const row = await c.env.DB.prepare(
+    `SELECT * FROM tasks WHERE tenant_id = ? AND id = ?`
+  )
+    .bind(tenant, c.req.param('id'))
+    .first();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  return c.json(parseTodo(row));
+});
+
+dataRoute.put('/:tenant/tasks/:id', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const id = c.req.param('id');
+  const exist = await c.env.DB.prepare(
+    `SELECT * FROM tasks WHERE tenant_id = ? AND id = ?`
+  )
+    .bind(tenant, id)
+    .first();
+  if (!exist) return c.json({ error: 'not found' }, 404);
+
+  const b = await c.req.json().catch(() => ({}));
+  // 非 owner 仅当该项开放协作编辑（co_edit=1）才允许改内容；否则 403。
+  const ow = ownerOf(c);
+  if (exist.owner_openid !== ow && !(exist.shared === 1 && exist.co_edit === 1)) {
+    return c.json({ error: 'forbidden' }, 403);
+  }
+  await c.env.DB.prepare(
+    `UPDATE tasks SET title=?, meta=?, tag=?, dot=?, shared=?, family_id=?, co_edit=?, room=?, updated_at=?
+     WHERE tenant_id=? AND id=?`
+  )
+    .bind(
+      b.title ?? exist.title,
+      b.meta !== undefined ? JSON.stringify(b.meta) : exist.meta,
+      b.tag ?? exist.tag,
+      b.dot ?? exist.dot,
+      b.shared !== undefined ? (b.shared ? 1 : 0) : exist.shared,
+      b.family_id ?? exist.family_id,
+      (b.co_edit !== undefined && exist.owner_openid === ow) ? (b.co_edit ? 1 : 0) : exist.co_edit,
+      b.room ?? exist.room,
+      now(),
+      tenant,
+      id
+    )
+    .run();
+  return c.json({ ok: true });
+});
+
+dataRoute.delete('/:tenant/tasks/:id', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const id = c.req.param('id');
+  const exist = await c.env.DB.prepare(
+    `SELECT * FROM tasks WHERE tenant_id = ? AND id = ?`
+  )
+    .bind(tenant, id)
+    .first();
+  if (!exist) return c.json({ error: 'not found' }, 404);
+  if (exist.owner_openid !== ownerOf(c)) return c.json({ error: 'forbidden' }, 403);
+
+  await c.env.DB.prepare(`DELETE FROM tasks WHERE tenant_id=? AND id=?`)
+    .bind(tenant, id)
     .run();
   return c.json({ ok: true });
 });
@@ -379,8 +470,16 @@ dataRoute.get('/:tenant/family/shared', async (c) => {
     .bind(...p)
     .all();
 
+  const tasksQ = await c.env.DB.prepare(
+    `SELECT 'task' AS kind, id, title, meta, tag, dot, family_id, owner_openid, co_edit, room, updated_at
+       FROM tasks WHERE ${cond} ORDER BY updated_at DESC`
+  )
+    .bind(...p)
+    .all();
+
   return c.json({
     todos: todos.results.map(parseTodo),
+    tasks: tasksQ.results.map(parseTodo),
     archive: archive.results.map(parseArchive),
   });
 });
@@ -414,6 +513,16 @@ dataRoute.post('/:tenant/family/shared/perm', async (c) => {
     ).bind(coEdit, now(), tenant, id).run();
     return c.json({ ok: true, co_edit: coEdit });
   }
+  const tsk = await c.env.DB.prepare(
+    `SELECT id, owner_openid FROM tasks WHERE tenant_id = ? AND id = ?`
+  ).bind(tenant, id).first();
+  if (tsk) {
+    if (tsk.owner_openid !== ownerOf(c)) return c.json({ error: 'forbidden' }, 403);
+    await c.env.DB.prepare(
+      `UPDATE tasks SET co_edit = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`
+    ).bind(coEdit, now(), tenant, id).run();
+    return c.json({ ok: true, co_edit: coEdit });
+  }
   return c.json({ error: 'not found' }, 404);
 });
 
@@ -427,10 +536,18 @@ dataRoute.post('/:tenant/family/shared/done', async (c) => {
   const done = b.done ? 1 : 0;
   if (!id) return c.json({ error: 'id required' }, 400);
 
-  const row = await c.env.DB.prepare(
+  const rowT = await c.env.DB.prepare(
     `SELECT * FROM todos WHERE tenant_id = ? AND id = ?`
   ).bind(tenant, id).first();
-  if (!row) return c.json({ error: 'not found' }, 404);
+  let row = rowT;
+  let table = 'todos';
+  if (!row) {
+    const rowK = await c.env.DB.prepare(
+      `SELECT * FROM tasks WHERE tenant_id = ? AND id = ?`
+    ).bind(tenant, id).first();
+    if (!rowK) return c.json({ error: 'not found' }, 404);
+    row = rowK; table = 'tasks';
+  }
   if (row.shared !== 1 || !row.family_id) return c.json({ error: 'forbidden' }, 403);
   // 校验请求者是该家庭（family_id）的成员
   const mem = await c.env.DB.prepare(
@@ -438,12 +555,16 @@ dataRoute.post('/:tenant/family/shared/done', async (c) => {
   ).bind(row.family_id, ownerOf(c)).first();
   if (!mem) return c.json({ error: 'forbidden' }, 403);
 
+  // 安全处理 meta：对象型追加 done 字段；旧版字符串型 meta 不覆盖，避免丢原文。
+  let isObj = false;
   let meta = {};
-  try { meta = JSON.parse(row.meta || '{}'); } catch { /* keep empty */ }
-  meta.done = done;
-  await c.env.DB.prepare(
-    `UPDATE todos SET meta = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`
-  ).bind(JSON.stringify(meta), now(), tenant, id).run();
+  try { meta = JSON.parse(row.meta || '{}'); isObj = true; } catch { meta = row.meta || ''; }
+  if (isObj) {
+    meta.done = done;
+    await c.env.DB.prepare(
+      `UPDATE ${table} SET meta = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`
+    ).bind(JSON.stringify(meta), now(), tenant, id).run();
+  }
   return c.json({ ok: true, done });
 });
 
