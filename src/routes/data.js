@@ -738,4 +738,144 @@ dataRoute.delete('/:tenant/c/:collection/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// SELF-SERVICE: 用户数据主权（个保法 / GDPR 合规入口）
+//   本人数据导出（GET /me/export）+ 账号注销删除（DELETE /me）。
+// 身份由网关注入的 X-User-Id 强制确定：网关 proxyToLake 用
+//   headers['x-user-id'] = req.ctx.openid  覆盖客户端传入值，
+// /api/data/* 段先 verifySession 才转发（无令牌直接 401）。因此客户端
+// 无法伪造身份。ownerOf(c) 严格隔离：所有查询/删除均带 owner_openid = 本人，
+// 跨用户 / 跨租户不可达。
+// ---------------------------------------------------------------------------
+
+// GET /t/:tenant/me/export —— 返回本人全部数据明文（供用户自助下载备份）
+dataRoute.get('/:tenant/me/export', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const ow = ownerOf(c);
+  if (ow === 'anonymous') return c.json({ error: 'unauthorized' }, 401);
+
+  const [todos, tasks, archive, collections, members, user] = await Promise.all([
+    c.env.DB.prepare('SELECT * FROM todos WHERE tenant_id = ? AND owner_openid = ? ORDER BY updated_at DESC').bind(tenant, ow).all(),
+    c.env.DB.prepare('SELECT * FROM tasks WHERE tenant_id = ? AND owner_openid = ? ORDER BY updated_at DESC').bind(tenant, ow).all(),
+    c.env.DB.prepare('SELECT * FROM archive_items WHERE tenant_id = ? AND owner_openid = ? ORDER BY updated_at DESC').bind(tenant, ow).all(),
+    c.env.DB.prepare('SELECT * FROM collections WHERE tenant_id = ? AND owner_openid = ? ORDER BY updated_at DESC').bind(tenant, ow).all(),
+    c.env.DB.prepare('SELECT family_id, role, nickname, joined_at FROM family_members WHERE openid = ?').bind(ow).all(),
+    c.env.DB.prepare('SELECT id, email, status, provider, created_at FROM users WHERE tenant_id = ? AND id = ?').bind(tenant, ow).all(),
+  ]);
+
+  return c.json({
+    schema: 'weijiashi-self-export/v1',
+    exportedAt: new Date().toISOString(),
+    owner_openid: ow,
+    tenant_id: tenant,
+    counts: {
+      todos: (todos.results || []).length,
+      tasks: (tasks.results || []).length,
+      archive: (archive.results || []).length,
+      collections: (collections.results || []).length,
+      families: (members.results || []).length,
+    },
+    todos: (todos.results || []).map(parseTodo),
+    tasks: (tasks.results || []).map(parseTodo),
+    archive: (archive.results || []).map(parseArchive),
+    collections: (collections.results || []).map((r) => {
+      if (r.doc) { try { r.doc = JSON.parse(r.doc); } catch { /* keep as-is */ } }
+      return r;
+    }),
+    families: members.results || [],
+    account: (user.results && user.results[0]) ? user.results[0] : null,
+  });
+});
+
+// DELETE /t/:tenant/me —— 注销并删除本人全部数据（高危，前端须二次确认）
+dataRoute.delete('/:tenant/me', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const ow = ownerOf(c);
+  if (ow === 'anonymous') return c.json({ error: 'unauthorized' }, 401);
+
+  // 防误触/滥用：同一 openid 每分钟最多 3 次
+  const rl = await rateLimit(c, `selfdel:${ow}`, { limit: 3, windowSec: 60 });
+  if (rl) return rl;
+
+  const detail = { tenant, steps: [] };
+
+  // 1) 收集本人图片 key（R2，前缀 img_{tenant}_{ow}_），用于后续清理
+  let imgKeys = [];
+  try {
+    const listed = await c.env.BUCKET.list({ prefix: `img_${tenant}_${ow}_` });
+    imgKeys = (listed.objects || []).map((o) => o.key);
+    detail.imgCount = imgKeys.length;
+  } catch (e) { detail.imgListError = String(e); }
+
+  // 2) 退出/清理所有家庭关联（不丢他人数据）
+  try {
+    const owned = await c.env.DB.prepare(
+      'SELECT family_id FROM families WHERE tenant_id = ? AND owner_openid = ?'
+    ).bind(tenant, ow).all();
+    for (const fam of (owned.results || [])) {
+      const fid = fam.family_id;
+      const others = await c.env.DB.prepare(
+        'SELECT openid FROM family_members WHERE family_id = ? AND openid <> ? ORDER BY joined_at ASC LIMIT 1'
+      ).bind(fid, ow).all();
+      if (others.results && others.results.length) {
+        // 转让给最早加入的其他成员，本人降级为普通成员后退出
+        const next = others.results[0].openid;
+        await c.env.DB.prepare("UPDATE family_members SET role = 'owner' WHERE family_id = ? AND openid = ?").bind(fid, next).run();
+        await c.env.DB.prepare('UPDATE families SET owner_openid = ? WHERE family_id = ?').bind(next, fid).run();
+        await c.env.DB.prepare('DELETE FROM family_members WHERE family_id = ? AND openid = ?').bind(fid, ow).run();
+      } else {
+        // 无其他成员：删除整个家庭（含邀请与成员）
+        await c.env.DB.prepare('DELETE FROM family_invites WHERE family_id = ?').bind(fid).run();
+        await c.env.DB.prepare('DELETE FROM family_members WHERE family_id = ?').bind(fid).run();
+        await c.env.DB.prepare('DELETE FROM families WHERE family_id = ?').bind(fid).run();
+      }
+    }
+    // 兜底清掉本人剩余的普通成员记录（非 owner 家庭）
+    await c.env.DB.prepare('DELETE FROM family_members WHERE openid = ?').bind(ow).run();
+    detail.familyCleaned = true;
+  } catch (e) { detail.familyError = String(e); }
+
+  // 3) 删除本人全部业务数据行（严格 owner_openid 隔离）
+  try {
+    await c.env.DB.prepare('DELETE FROM todos WHERE tenant_id = ? AND owner_openid = ?').bind(tenant, ow).run();
+    await c.env.DB.prepare('DELETE FROM tasks WHERE tenant_id = ? AND owner_openid = ?').bind(tenant, ow).run();
+    await c.env.DB.prepare('DELETE FROM archive_items WHERE tenant_id = ? AND owner_openid = ?').bind(tenant, ow).run();
+    await c.env.DB.prepare('DELETE FROM collections WHERE tenant_id = ? AND owner_openid = ?').bind(tenant, ow).run();
+    detail.dataDeleted = true;
+  } catch (e) { detail.dataError = String(e); }
+
+  // 4) 账号记录（若存在，账号登录体系）：标记删除；微家事静默登录无记录则 no-op
+  try {
+    await c.env.DB.prepare("UPDATE users SET status = 'deleted' WHERE tenant_id = ? AND id = ? AND status = 'active'").bind(tenant, ow).run();
+  } catch (e) { detail.userError = String(e); }
+
+  // 5) 清理 R2 本人图片
+  let imgDeleted = 0;
+  for (const k of imgKeys) {
+    try { await c.env.BUCKET.delete(k); imgDeleted++; } catch (e) { /* best-effort */ }
+  }
+  detail.imgDeleted = imgDeleted;
+
+  // 6) 审计（best-effort，列签名与 admin.audit 一致）
+  try {
+    await c.env.DB.prepare(
+      'INSERT INTO admin_audit_log (id, app_id, tenant_id, admin_id, action, target, detail, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(
+      crypto.randomUUID(),
+      null,
+      tenant,
+      ow,
+      'self.delete',
+      'self',
+      JSON.stringify(detail),
+      null,
+      now()
+    ).run();
+  } catch (e) { /* best-effort */ }
+
+  return c.json({ ok: true, deleted: { imgKeys: imgDeleted } });
+});
+
 export { dataRoute };
