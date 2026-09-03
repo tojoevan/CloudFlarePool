@@ -4,7 +4,7 @@
 const $ = (s) => document.querySelector(s);
 const API = ''; // 同源网关
 const TOKEN_KEY = 'weijiashi_t4';
-const SPA_VERSION = 'v0.0.2'; // 前端语义版本（随发布维护）
+const SPA_VERSION = 'v0.0.3'; // 前端语义版本（随发布维护）
 
 const getToken = () => localStorage.getItem(TOKEN_KEY);
 const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
@@ -324,13 +324,13 @@ function copySecret() {
 const DATA_TABLES = {
   todos: {
     label: '待办',
-    cols: [['id', 'ID'], ['owner_openid', '归属'], ['tenant_id', '租户'], ['title', '标题'], ['meta', 'meta'], ['tag', '标签'], ['dot', '圆点'], ['shared', '共享'], ['family_id', '家庭'], ['updated_at', '更新']],
+    cols: [['id', 'ID'], ['owner_openid', '归属'], ['tenant_id', '租户'], ['title', '标题'], ['meta', 'meta'], ['tag', '标签'], ['dot', '圆点'], ['shared', '共享'], ['co_edit', '协作'], ['family_id', '家庭'], ['updated_at', '更新']],
     edit: ['title', 'meta', 'tag', 'dot', 'shared', 'family_id'],
     json: ['meta'],
   },
   archive_items: {
     label: '归档',
-    cols: [['id', 'ID'], ['owner_openid', '归属'], ['tenant_id', '租户'], ['type', '类型'], ['payload', 'payload'], ['shared', '共享'], ['family_id', '家庭'], ['created_at', '创建'], ['updated_at', '更新']],
+    cols: [['id', 'ID'], ['owner_openid', '归属'], ['tenant_id', '租户'], ['type', '类型'], ['payload', 'payload'], ['shared', '共享'], ['co_edit', '协作'], ['family_id', '家庭'], ['created_at', '创建'], ['updated_at', '更新']],
     edit: ['type', 'payload', 'shared', 'family_id'],
     json: ['payload'],
   },
@@ -340,6 +340,24 @@ const DATA_TABLES = {
     edit: ['doc'],
     json: ['doc'],
   },
+  families: {
+    label: '家庭',
+    cols: [['family_id', '家庭 ID'], ['tenant_id', '租户'], ['name', '名称'], ['owner_openid', '创建者'], ['created_at', '创建']],
+    edit: [],
+    json: [],
+  },
+  family_members: {
+    label: '家庭成员',
+    cols: [['family_id', '家庭 ID'], ['openid', '成员 openid'], ['role', '角色'], ['nickname', '昵称'], ['invited_by', '邀请人'], ['joined_at', '加入']],
+    edit: [],
+    json: [],
+  },
+  family_invites: {
+    label: '家庭邀请',
+    cols: [['code', '邀请码'], ['family_id', '家庭 ID'], ['inviter_openid', '邀请人'], ['created_at', '创建'], ['expires_at', '过期'], ['used_at', '已使用']],
+    edit: [],
+    json: [],
+  },
   tasks_doc: {
     label: '任务文档',
     cols: [['tenant_id', '租户'], ['owner_openid', '归属'], ['sections', 'sections'], ['updated_at', '更新']],
@@ -348,7 +366,7 @@ const DATA_TABLES = {
   },
 };
 
-const dataState = { table: 'todos', q: '', tid: '', limit: 20, offset: 0, total: 0 };
+const dataState = { table: 'todos', q: '', owner: '', tid: '', limit: 20, offset: 0, total: 0 };
 
 function fmtCell(v) {
   if (v === null || v === undefined || v === '') return '-';
@@ -395,6 +413,7 @@ async function loadData() {
   try {
     const params = new URLSearchParams({ limit: dataState.limit, offset: dataState.offset });
     if (dataState.q) params.set('q', dataState.q);
+    if (dataState.owner) params.set('owner', dataState.owner);
     if (dataState.tid) params.set('tid', dataState.tid);
     const d = await api(`/api/t4data/rows/${dataState.table}?${params.toString()}`);
     dataState.total = d.total;
@@ -407,9 +426,8 @@ async function loadData() {
         // id 在不同集合间会撞车（如 cloudlet_saves/cloudlet_accounts 同用 accountId），
         // 必须用 集合:id 作唯一键，否则 querySelector 会命中另一条
         tr.dataset.row = (row.collection || '') + '‡' + row.id;
-        let cells = `<td class="row-actions"><button class="ghost sm act" data-act="edit" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">编辑</button>`;
-        if (t.edit.length) cells += ` <button class="ghost sm act danger" data-act="del" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">删除</button>`;
-        cells += '</td>';
+        // 只读表（edit 为空）不渲染编辑/删除按钮，复合主键表也不支持单行取数
+        let cells = `<td class="row-actions">${t.edit.length ? `<button class="ghost sm act" data-act="edit" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">编辑</button> <button class="ghost sm act danger" data-act="del" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">删除</button>` : '<span class="empty">只读</span>'}</td>`;
         for (const [k] of t.cols) cells += `<td>${fmtCell(row[k])}</td>`;
         tr.innerHTML = cells;
         body.appendChild(tr);
@@ -554,6 +572,7 @@ async function exportData(fmt) {
   try {
     const params = new URLSearchParams();
     if (dataState.q) params.set('q', dataState.q);
+    if (dataState.owner) params.set('owner', dataState.owner);
     if (dataState.tid) params.set('tid', dataState.tid);
     const d = await api(`/api/t4data/rows/${dataState.table}/export?${params.toString()}`);
     if (!d.rows.length) { toast('无数据可导出', false); return; }
@@ -567,6 +586,165 @@ async function exportData(fmt) {
     toast(`已导出 ${d.rows.length} 条${d.truncated ? '（超过上限已截断）' : ''}`);
   } catch (err) {
     toast(err.message, false);
+  }
+}
+
+// ===== 用户与家庭（openid 画像）=====
+const profilesState = { q: '', limit: 20, offset: 0, total: 0 };
+
+async function loadProfiles() {
+  const body = $('#profiles-body');
+  body.innerHTML = '<tr><td colspan="8" class="empty">加载中…</td></tr>';
+  // 每次进列表都回到列表视图（清掉可能残留的详情）
+  showProfilesView('list');
+  try {
+    const params = new URLSearchParams({ limit: profilesState.limit, offset: profilesState.offset });
+    if (profilesState.q) params.set('q', profilesState.q);
+    const d = await api(`/api/t4data/profiles?${params.toString()}`);
+    profilesState.total = d.total;
+    if (!d.rows.length) {
+      body.innerHTML = '<tr><td colspan="8" class="empty">暂无用户</td></tr>';
+    } else {
+      body.innerHTML = '';
+      for (const p of d.rows) {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          `<td><code>${esc(p.openid)}</code></td>` +
+          `<td>${esc(p.nickname || '-')}</td>` +
+          `<td>${p.todos}</td><td>${p.archives}</td><td>${p.collections}</td><td>${p.families}</td>` +
+          `<td>${fmtTime(p.last_active)}</td>` +
+          `<td><button class="ghost sm pd-open" data-oid="${esc(p.openid)}">详情</button></td>`;
+        body.appendChild(tr);
+      }
+      body.querySelectorAll('.pd-open').forEach((b) =>
+        b.addEventListener('click', () => showProfileDetail(b.dataset.oid))
+      );
+    }
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="8" class="empty">${esc(err.message)}</td></tr>`;
+  }
+  renderProfilesPager();
+  $('#profiles-meta').textContent = `共 ${profilesState.total} 位用户 · 第 ${Math.floor(profilesState.offset / profilesState.limit) + 1} 页`;
+}
+
+function renderProfilesPager() {
+  const pages = Math.max(1, Math.ceil(profilesState.total / profilesState.limit));
+  const cur = Math.floor(profilesState.offset / profilesState.limit) + 1;
+  $('#profiles-pager').innerHTML =
+    `<button class="ghost sm" id="ppg-prev" ${cur <= 1 ? 'disabled' : ''}>‹ 上一页</button>` +
+    `<span class="pg-info">第 ${cur} / ${pages} 页</span>` +
+    `<button class="ghost sm" id="ppg-next" ${cur >= pages ? 'disabled' : ''}>下一页 ›</button>`;
+  const prev = $('#ppg-prev'), next = $('#ppg-next');
+  if (prev) prev.addEventListener('click', () => { profilesState.offset = Math.max(0, profilesState.offset - profilesState.limit); loadProfiles(); });
+  if (next) next.addEventListener('click', () => { profilesState.offset += profilesState.limit; loadProfiles(); });
+}
+
+// 视图切换：list / profile / family（family 由用户详情下钻进入）
+function showProfilesView(view) {
+  $('#profiles-list').classList.toggle('hidden', view !== 'list');
+  const d = $('#profiles-detail');
+  d.classList.toggle('hidden', view === 'list');
+  if (view === 'list') d.innerHTML = '';
+}
+
+// 用户详情：聚合该 openid 的家庭关系 + 三类业务数据（均走 rows 端点 owner 过滤）
+async function showProfileDetail(openid) {
+  showProfilesView('profile');
+  const box = $('#profiles-detail');
+  box.innerHTML = '<p class="empty">加载中…</p>';
+  try {
+    const [famRes, todoRes, archRes, collRes] = await Promise.all([
+      api(`/api/t4data/rows/family_members?owner=${encodeURIComponent(openid)}&limit=50`),
+      api(`/api/t4data/rows/todos?owner=${encodeURIComponent(openid)}&limit=10`),
+      api(`/api/t4data/rows/archive_items?owner=${encodeURIComponent(openid)}&limit=10`),
+      api(`/api/t4data/rows/collections?owner=${encodeURIComponent(openid)}&limit=10`),
+    ]);
+    // 家庭名称：按 membership 的 family_id 逐个查（每人 ≤3 个家庭）
+    const memberships = famRes.rows || [];
+    const famInfos = await Promise.all(
+      memberships.map((m) => api(`/api/t4data/rows/families?fam=${encodeURIComponent(m.family_id)}&limit=1`).then((r) => r.rows[0] || null).catch(() => null))
+    );
+
+    const famRows = memberships.map((m, i) => {
+      const f = famInfos[i];
+      return `<tr>` +
+        `<td><a class="pd-fam link" data-fid="${esc(m.family_id)}">${esc(f && f.name ? f.name : m.family_id)}</a></td>` +
+        `<td><code>${esc(m.family_id)}</code></td>` +
+        `<td>${m.role === 'owner' ? '<span class="badge ok">创建者</span>' : '成员'}</td>` +
+        `<td>${esc(m.nickname || '-')}</td>` +
+        `<td>${fmtTime(m.joined_at)}</td></tr>`;
+    }).join('');
+
+    const mini = (rows, cols) => rows.map((r) =>
+      '<tr>' + cols.map(([k]) => `<td>${fmtCell(r[k])}</td>`).join('') + '</tr>'
+    ).join('') || '<tr><td class="empty" colspan="' + cols.length + '">无数据</td></tr>';
+
+    box.innerHTML =
+      `<div class="panel-head"><h2>用户详情</h2><button class="ghost sm" id="pd-back">‹ 返回列表</button></div>` +
+      `<div class="t-row"><span>openid</span><b><code>${esc(openid)}</code></b></div>` +
+      `<div class="pd-sec"><h3>家庭关系（${memberships.length}）</h3>` +
+      `<div class="table-wrap"><table class="tbl"><thead><tr><th>家庭</th><th>家庭 ID</th><th>角色</th><th>昵称</th><th>加入时间</th></tr></thead><tbody>${famRows}</tbody></table></div></div>` +
+      `<div class="pd-sec"><h3>待办（共 ${todoRes.total}）</h3>` +
+      `<div class="table-wrap"><table class="tbl"><thead><tr><th>标题</th><th>标签</th><th>共享</th><th>家庭</th><th>更新</th></tr></thead><tbody>${mini(todoRes.rows || [], [['title'], ['tag'], ['shared'], ['family_id'], ['updated_at']])}</tbody></table></div></div>` +
+      `<div class="pd-sec"><h3>归档（共 ${archRes.total}）</h3>` +
+      `<div class="table-wrap"><table class="tbl"><thead><tr><th>类型</th><th>共享</th><th>家庭</th><th>创建</th></tr></thead><tbody>${mini(archRes.rows || [], [['type'], ['shared'], ['family_id'], ['created_at']])}</tbody></table></div></div>` +
+      `<div class="pd-sec"><h3>集合（共 ${collRes.total}）</h3>` +
+      `<div class="table-wrap"><table class="tbl"><thead><tr><th>集合</th><th>更新</th></tr></thead><tbody>${mini(collRes.rows || [], [['collection'], ['updated_at']])}</tbody></table></div></div>`;
+
+    $('#pd-back').addEventListener('click', () => showProfilesView('list'));
+    box.querySelectorAll('.pd-fam').forEach((a) =>
+      a.addEventListener('click', () => showFamilyDetail(a.dataset.fid, openid))
+    );
+  } catch (err) {
+    box.innerHTML = `<p class="empty">${esc(err.message)}</p><button class="ghost sm" id="pd-back">‹ 返回列表</button>`;
+    $('#pd-back').addEventListener('click', () => showProfilesView('list'));
+  }
+}
+
+// 家庭详情：从用户详情下钻，看家庭信息 + 全部成员 + 邀请记录
+async function showFamilyDetail(familyId, backOpenid) {
+  showProfilesView('family');
+  const box = $('#profiles-detail');
+  box.innerHTML = '<p class="empty">加载中…</p>';
+  try {
+    const [famRes, memRes, invRes] = await Promise.all([
+      api(`/api/t4data/rows/families?fam=${encodeURIComponent(familyId)}&limit=1`),
+      api(`/api/t4data/rows/family_members?fam=${encodeURIComponent(familyId)}&limit=100`),
+      api(`/api/t4data/rows/family_invites?fam=${encodeURIComponent(familyId)}&limit=100`),
+    ]);
+    const f = famRes.rows[0];
+    const members = memRes.rows || [];
+    const invites = invRes.rows || [];
+    const now = Date.now();
+    const memRows = members.map((m) =>
+      `<tr><td><code>${esc(m.openid)}</code></td>` +
+      `<td>${m.role === 'owner' ? '<span class="badge ok">创建者</span>' : '成员'}</td>` +
+      `<td>${esc(m.nickname || '-')}</td>` +
+      `<td><code>${esc(m.invited_by || '-')}</code></td>` +
+      `<td>${fmtTime(m.joined_at)}</td></tr>`
+    ).join('');
+    const invRows = invites.map((iv) => {
+      const state = iv.used_at ? '<span class="badge">已使用</span>' : (iv.expires_at && iv.expires_at < now ? '<span class="badge bad">已过期</span>' : '<span class="badge ok">有效</span>');
+      return `<tr><td><code>${esc(iv.code)}</code></td><td><code>${esc(iv.inviter_openid)}</code></td><td>${state}</td><td>${fmtTime(iv.created_at)}</td><td>${fmtTime(iv.expires_at)}</td><td>${fmtTime(iv.used_at)}</td></tr>`;
+    }).join('');
+
+    box.innerHTML =
+      `<div class="panel-head"><h2>家庭详情</h2><button class="ghost sm" id="pd-back">‹ 返回用户详情</button></div>` +
+      (f
+        ? `<div class="t-row"><span>名称</span><b>${esc(f.name || '-')}</b></div>` +
+          `<div class="t-row"><span>家庭 ID</span><b><code>${esc(f.family_id)}</code></b></div>` +
+          `<div class="t-row"><span>创建者</span><b><code>${esc(f.owner_openid)}</code></b></div>` +
+          `<div class="t-row"><span>创建时间</span><b>${fmtTime(f.created_at)}</b></div>`
+        : '<p class="empty">家庭记录不存在或不在当前租户范围</p>') +
+      `<div class="pd-sec"><h3>成员（${members.length}）</h3>` +
+      `<div class="table-wrap"><table class="tbl"><thead><tr><th>成员 openid</th><th>角色</th><th>昵称</th><th>邀请人</th><th>加入时间</th></tr></thead><tbody>${memRows || '<tr><td class="empty" colspan="5">无成员</td></tr>'}</tbody></table></div></div>` +
+      `<div class="pd-sec"><h3>邀请记录（${invites.length}）</h3>` +
+      `<div class="table-wrap"><table class="tbl"><thead><tr><th>邀请码</th><th>邀请人</th><th>状态</th><th>创建</th><th>过期</th><th>使用</th></tr></thead><tbody>${invRows || '<tr><td class="empty" colspan="6">无邀请记录</td></tr>'}</tbody></table></div></div>`;
+
+    $('#pd-back').addEventListener('click', () => showProfileDetail(backOpenid));
+  } catch (err) {
+    box.innerHTML = `<p class="empty">${esc(err.message)}</p><button class="ghost sm" id="pd-back">‹ 返回用户详情</button>`;
+    $('#pd-back').addEventListener('click', () => showProfileDetail(backOpenid));
   }
 }
 
@@ -659,6 +837,7 @@ function switchTab(name) {
   document.querySelectorAll('.panel').forEach((p) => p.classList.add('hidden'));
   $('#panel-' + name).classList.remove('hidden');
   if (name === 'data') { dataHead(); loadData(); }
+  if (name === 'profiles') loadProfiles();
   if (name === 'users') loadUsers();
   if (name === 'keys') { $('#key-secret').classList.add('hidden'); loadKeys(); }
   if (name === 'audit') loadAudit();
@@ -801,8 +980,9 @@ $('#data-table').addEventListener('change', (e) => {
   dataHead();
   loadData();
 });
-$('#data-search').addEventListener('click', () => { dataState.q = $('#data-q').value.trim(); dataState.offset = 0; loadData(); });
-$('#data-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { dataState.q = $('#data-q').value.trim(); dataState.offset = 0; loadData(); } });
+$('#data-search').addEventListener('click', () => { dataState.q = $('#data-q').value.trim(); dataState.owner = $('#data-owner').value.trim(); dataState.offset = 0; loadData(); });
+$('#data-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { dataState.q = $('#data-q').value.trim(); dataState.owner = $('#data-owner').value.trim(); dataState.offset = 0; loadData(); } });
+$('#data-owner').addEventListener('keydown', (e) => { if (e.key === 'Enter') { dataState.owner = $('#data-owner').value.trim(); dataState.q = $('#data-q').value.trim(); dataState.offset = 0; loadData(); } });
 $('#data-refresh').addEventListener('click', () => { dataState.offset = 0; loadData(); });
 $('#data-export-csv').addEventListener('click', () => exportData('csv'));
 $('#data-export-json').addEventListener('click', () => exportData('json'));
@@ -811,6 +991,11 @@ $('#data-tenant').addEventListener('change', (e) => {
   dataState.offset = 0;
   loadData();
 });
+
+// 用户与家庭事件
+$('#profiles-search').addEventListener('click', () => { profilesState.q = $('#profiles-q').value.trim(); profilesState.offset = 0; loadProfiles(); });
+$('#profiles-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { profilesState.q = $('#profiles-q').value.trim(); profilesState.offset = 0; loadProfiles(); } });
+$('#profiles-refresh').addEventListener('click', () => { profilesState.offset = 0; loadProfiles(); });
 
 // 审计日志事件
 $('#audit-action').addEventListener('change', (e) => { auditState.action = e.target.value; auditState.offset = 0; loadAudit(); });

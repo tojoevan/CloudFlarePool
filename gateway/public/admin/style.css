@@ -526,3 +526,15 @@ button.act:disabled { opacity: 0.4; }
   .mint-grid { grid-template-columns: 1fr; }
 }
 
+/* ===== 用户与家庭（openid 画像）===== */
+.pd-sec { margin-top: 18px; }
+.pd-sec h3 { margin: 0 0 8px; font-size: 13.5px; color: var(--muted); font-weight: 600; }
+.pd-fam { color: var(--brand); cursor: pointer; text-decoration: underline dotted; }
+.pd-fam:hover { opacity: 0.8; }
+#profiles-detail .t-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 13px;
+}
+#profiles-detail .t-row span { color: var(--muted); }
+#profiles-detail .t-row b { word-break: break-all; text-align: right; }
+

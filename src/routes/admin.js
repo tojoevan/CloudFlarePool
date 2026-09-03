@@ -308,6 +308,85 @@ adminRoute.post('/users/:id/reset', async (c) => {
   return c.json({ ok: true, id });
 });
 
+// ===== openid 用户画像（「用户与家庭」页的数据源）=====
+// 小程序用户无邮箱账号，以 openid 为身份，散落在各业务表。此处聚合
+// todos / archive_items / collections / family_members 四表，返回每个
+// openid 的数据量、家庭数与最近活跃时间，供管理后台做用户视角排障入口。
+// 只读端点，不写审计。tenant 角色看本租户；platform 角色可选 ?tid=。
+//   GET /admin/profiles?q=&limit=&offset=&tid=
+adminRoute.get('/profiles', async (c) => {
+  const deny = requireAdmin(c);
+  if (deny) return deny;
+
+  const db = c.env.DB;
+  const role = c.get('userRole');
+  const whereSql = [];
+  const tp = [];
+  if (role !== 'platform') {
+    whereSql.push('tenant_id = ?');
+    tp.push(c.get('userTid') || 'weijiashi');
+  } else {
+    const tid = c.req.query('tid');
+    if (tid) { whereSql.push('tenant_id = ?'); tp.push(tid); }
+  }
+  const tSql = whereSql.length ? whereSql.join(' AND ') : '1=1';
+
+  // openid -> 画像。分别查四张表后内存合并，避免 UNION ALL 组合查询的坑。
+  const map = new Map();
+  const touch = (oid) => {
+    let p = map.get(oid);
+    if (!p) {
+      p = { openid: oid, nickname: null, todos: 0, archives: 0, collections: 0, families: 0, last_active: 0 };
+      map.set(oid, p);
+    }
+    return p;
+  };
+  const agg = (rows, apply) => {
+    for (const r of rows || []) apply(r);
+  };
+
+  const q1 = await db
+    .prepare(`SELECT owner_openid AS oid, COUNT(*) AS n, MAX(updated_at) AS t FROM todos WHERE ${tSql} GROUP BY owner_openid`)
+    .bind(...tp)
+    .all();
+  agg(q1.results, (r) => { const p = touch(r.oid); p.todos = r.n; if (r.t > p.last_active) p.last_active = r.t; });
+
+  const q2 = await db
+    .prepare(`SELECT owner_openid AS oid, COUNT(*) AS n, MAX(updated_at) AS t FROM archive_items WHERE ${tSql} GROUP BY owner_openid`)
+    .bind(...tp)
+    .all();
+  agg(q2.results, (r) => { const p = touch(r.oid); p.archives = r.n; if (r.t > p.last_active) p.last_active = r.t; });
+
+  const q3 = await db
+    .prepare(`SELECT owner_openid AS oid, COUNT(*) AS n, MAX(updated_at) AS t FROM collections WHERE ${tSql} GROUP BY owner_openid`)
+    .bind(...tp)
+    .all();
+  agg(q3.results, (r) => { const p = touch(r.oid); p.collections = r.n; if (r.t > p.last_active) p.last_active = r.t; });
+
+  // family_members 无 tenant_id，经 families 子查询收口；昵称取最新加入的家庭
+  const q4 = await db
+    .prepare(
+      `SELECT m.openid AS oid, COUNT(*) AS n, MAX(m.joined_at) AS t,
+              (SELECT m2.nickname FROM family_members m2 WHERE m2.openid = m.openid AND m2.nickname IS NOT NULL ORDER BY m2.joined_at DESC LIMIT 1) AS nick
+       FROM family_members m
+       WHERE m.family_id IN (SELECT family_id FROM families WHERE ${tSql})
+       GROUP BY m.openid`
+    )
+    .bind(...tp)
+    .all();
+  agg(q4.results, (r) => { const p = touch(r.oid); p.families = r.n; p.nickname = r.nick || null; if (r.t > p.last_active) p.last_active = r.t; });
+
+  // 搜索（openid 子串）+ 按最近活跃排序 + 分页
+  const q = (c.req.query('q') || '').trim().toLowerCase();
+  let all = Array.from(map.values());
+  if (q) all = all.filter((p) => p.openid.toLowerCase().includes(q));
+  all.sort((a, b) => b.last_active - a.last_active || (a.openid < b.openid ? -1 : 1));
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10) || 20, 100);
+  const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0);
+  return c.json({ rows: all.slice(offset, offset + limit), total: all.length, limit, offset });
+});
+
 // T3 服务密钥列表（租户内）。
 adminRoute.get('/keys', async (c) => {
   const deny = requireAdmin(c);
@@ -460,7 +539,7 @@ adminRoute.post('/accounts/:id/reset', async (c) => {
 const ROW_TABLES = {
   todos: {
     label: '待办',
-    cols: ['id', 'owner_openid', 'tenant_id', 'title', 'meta', 'tag', 'dot', 'shared', 'family_id', 'updated_at'],
+    cols: ['id', 'owner_openid', 'tenant_id', 'title', 'meta', 'tag', 'dot', 'shared', 'co_edit', 'family_id', 'updated_at'],
     searchable: ['title'],
     editable: ['title', 'meta', 'tag', 'dot', 'shared', 'family_id'],
     jsonCols: ['meta'],
@@ -476,7 +555,7 @@ const ROW_TABLES = {
   },
   archive_items: {
     label: '归档',
-    cols: ['id', 'owner_openid', 'tenant_id', 'type', 'payload', 'shared', 'family_id', 'created_at', 'updated_at'],
+    cols: ['id', 'owner_openid', 'tenant_id', 'type', 'payload', 'shared', 'co_edit', 'family_id', 'created_at', 'updated_at'],
     searchable: ['type'],
     editable: ['type', 'payload', 'shared', 'family_id'],
     jsonCols: ['payload'],
@@ -489,6 +568,41 @@ const ROW_TABLES = {
     editable: ['doc'],
     jsonCols: ['doc'],
     key: 'id',
+    familyIdCol: 'family_id', // ?fam= 按家庭过滤（共享项挂家庭）
+  },
+  families: {
+    label: '家庭',
+    cols: ['family_id', 'tenant_id', 'name', 'owner_openid', 'created_at'],
+    searchable: ['name'],
+    editable: [], // v1 只读：家庭记录的修正走业务链路，避免误编辑（撞 id 教训）
+    jsonCols: [],
+    key: 'family_id',
+    orderCol: 'created_at',
+    familyIdCol: 'family_id',
+  },
+  family_members: {
+    label: '家庭成员',
+    cols: ['family_id', 'openid', 'role', 'nickname', 'invited_by', 'joined_at'],
+    searchable: ['nickname'],
+    editable: [], // 复合主键 (family_id, openid)，无单列 id，保持只读
+    jsonCols: [],
+    key: null, // 复合主键：行级编辑/删除一律拒绝
+    orderCol: 'joined_at',
+    ownerCol: 'openid',            // ?owner= 筛成员而非 owner_openid
+    tenantVia: { table: 'families', pk: 'family_id', fk: 'family_id' }, // 无 tenant_id，经 families 收口
+    familyIdCol: 'family_id',
+  },
+  family_invites: {
+    label: '家庭邀请',
+    cols: ['code', 'family_id', 'inviter_openid', 'created_at', 'expires_at', 'used_at'],
+    searchable: [],
+    editable: [], // 凭证类数据，只读
+    jsonCols: [],
+    key: 'code',
+    orderCol: 'created_at',
+    ownerCol: 'inviter_openid',
+    tenantVia: { table: 'families', pk: 'family_id', fk: 'family_id' },
+    familyIdCol: 'family_id',
   },
 };
 
@@ -498,22 +612,45 @@ function parseAdminJson(v) {
 }
 
 // 组装租户可见行的查询条件；返回 { where, params }
+// meta 可选扩展：
+//   ownerCol    —— 归属列名（默认 owner_openid；family_members 是 openid）
+//   tenantVia   —— 表无 tenant_id 列时，经 { table, pk, fk } 子查询收口租户
+//   familyIdCol —— 支持 ?fam= 按家庭 id 过滤（家庭成员/邀请/共享项）
 function rowWhere(c, meta, { withOwnerKey = false, collection = null } = {}) {
   const role = c.get('userRole');
   const ownTid = c.get('userTid');
   const where = [];
   const params = [];
 
+  // 租户约束：tenant 角色强制本租户；platform 角色可选 ?tid=
+  let tenantCond = null;
+  let tenantParam = null;
   if (role !== 'platform') {
-    where.push('tenant_id = ?');
-    params.push(ownTid || 'weijiashi');
+    tenantCond = 'tenant_id = ?';
+    tenantParam = ownTid || 'weijiashi';
   } else {
     const tid = c.req.query('tid');
-    if (tid) { where.push('tenant_id = ?'); params.push(tid); }
+    if (tid) { tenantCond = 'tenant_id = ?'; tenantParam = tid; }
+  }
+  if (tenantCond) {
+    if (meta.tenantVia) {
+      const { table, pk, fk } = meta.tenantVia;
+      where.push(`${fk} IN (SELECT ${pk} FROM ${table} WHERE ${tenantCond})`);
+      params.push(tenantParam);
+    } else {
+      where.push(tenantCond);
+      params.push(tenantParam);
+    }
   }
 
   const owner = c.req.query('owner');
-  if (owner && !withOwnerKey) { where.push('owner_openid = ?'); params.push(owner); }
+  if (owner && !withOwnerKey) {
+    where.push(`${meta.ownerCol || 'owner_openid'} = ?`);
+    params.push(owner);
+  }
+
+  const fam = c.req.query('fam');
+  if (fam && meta.familyIdCol) { where.push(`${meta.familyIdCol} = ?`); params.push(fam); }
 
   // collections 表用 id 作主键，但不同集合（如 cloudlet_saves / cloudlet_accounts）
   // 会复用同一 id，必须按 collection 进一步唯一定位，否则编辑/删除会命中撞 id 的其它行
@@ -545,7 +682,7 @@ adminRoute.get('/rows/:table', async (c) => {
     .bind(...params)
     .first();
   const { results } = await db
-    .prepare(`SELECT * FROM ${c.req.param('table')} WHERE ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
+    .prepare(`SELECT * FROM ${c.req.param('table')} WHERE ${where} ORDER BY ${meta.orderCol || 'updated_at'} DESC LIMIT ? OFFSET ?`)
     .bind(...params, limit, offset)
     .all();
 
@@ -569,7 +706,7 @@ adminRoute.get('/rows/:table/export', async (c) => {
   const db = c.env.DB;
   const { where, params } = rowWhere(c, meta);
   const { results } = await db
-    .prepare(`SELECT * FROM ${c.req.param('table')} WHERE ${where} ORDER BY updated_at DESC LIMIT 10000`)
+    .prepare(`SELECT * FROM ${c.req.param('table')} WHERE ${where} ORDER BY ${meta.orderCol || 'updated_at'} DESC LIMIT 10000`)
     .bind(...params)
     .all();
 
@@ -593,6 +730,7 @@ adminRoute.get('/rows/:table/:id', async (c) => {
 
   const meta = ROW_TABLES[c.req.param('table')];
   if (!meta) return c.json({ error: 'unknown table' }, 404);
+  if (!meta.key) return c.json({ error: 'table has composite key, no single-row access' }, 400);
 
   const db = c.env.DB;
   const table = c.req.param('table');
