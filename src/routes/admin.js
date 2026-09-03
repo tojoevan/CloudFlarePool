@@ -258,7 +258,7 @@ adminRoute.get('/users', async (c) => {
     .prepare('SELECT id, email, status, provider, created_at FROM users WHERE tenant_id = ? ORDER BY created_at DESC')
     .bind(tid)
     .all();
-  return c.json(rows.results || []);
+  return c.json((rows.results || []).map((u) => ({ ...u, email: u.email ? maskText(u.email) : u.email })));
 });
 
 // 启用 / 禁用用户账号（仅限本租户）。
@@ -543,6 +543,7 @@ const ROW_TABLES = {
     searchable: ['title'],
     editable: ['title', 'meta', 'tag', 'dot', 'shared', 'family_id'],
     jsonCols: ['meta'],
+    maskCols: ['title', 'meta'], // 标题/正文打码
     key: 'id',
   },
   tasks_doc: {
@@ -551,6 +552,7 @@ const ROW_TABLES = {
     searchable: [],
     editable: [],
     jsonCols: ['sections'],
+    maskCols: ['sections'], // 事务正文打码
     key: 'owner_openid',
   },
   archive_items: {
@@ -559,6 +561,7 @@ const ROW_TABLES = {
     searchable: ['type'],
     editable: ['type', 'payload', 'shared', 'family_id'],
     jsonCols: ['payload'],
+    maskCols: ['payload'], // 归档内容打码
     key: 'id',
   },
   collections: {
@@ -567,6 +570,7 @@ const ROW_TABLES = {
     searchable: ['collection'],
     editable: ['doc'],
     jsonCols: ['doc'],
+    maskCols: ['doc'], // 集合文档打码
     key: 'id',
     familyIdCol: 'family_id', // ?fam= 按家庭过滤（共享项挂家庭）
   },
@@ -576,6 +580,7 @@ const ROW_TABLES = {
     searchable: ['name'],
     editable: [], // v1 只读：家庭记录的修正走业务链路，避免误编辑（撞 id 教训）
     jsonCols: [],
+    maskCols: ['name'], // 家庭名打码
     key: 'family_id',
     orderCol: 'created_at',
     familyIdCol: 'family_id',
@@ -586,6 +591,7 @@ const ROW_TABLES = {
     searchable: ['nickname'],
     editable: [], // 复合主键 (family_id, openid)，无单列 id，保持只读
     jsonCols: [],
+    maskCols: ['nickname'], // 成员昵称打码
     key: null, // 复合主键：行级编辑/删除一律拒绝
     orderCol: 'joined_at',
     ownerCol: 'openid',            // ?owner= 筛成员而非 owner_openid
@@ -598,6 +604,7 @@ const ROW_TABLES = {
     searchable: [],
     editable: [], // 凭证类数据，只读
     jsonCols: [],
+    maskCols: ['code'], // 邀请码打码
     key: 'code',
     orderCol: 'created_at',
     ownerCol: 'inviter_openid',
@@ -609,6 +616,36 @@ const ROW_TABLES = {
 function parseAdminJson(v) {
   if (typeof v !== 'string') return v;
   try { return JSON.parse(v); } catch { return v; }
+}
+
+// ===== 隐私脱敏（方案 A：后台不直接读明文隐私）=====
+// 后台只读聚合统计/排障元数据，敏感内容字段一律打码。设计取舍：
+//   - 列表/导出/画像：脱敏，防止一览无余看到用户家事内容。
+//   - 单行详情（:id GET，供 platform 编辑）：不脱敏，否则编辑表单会
+//     把脱敏值写回（如把"空调滤网清洗"存成"空**"）。platform 需看原文才能改。
+//   - 本人数据（T2 通道）不经过此处，不受影响。
+
+// 文本打码：保留首字符、其余用 * 填充（长度信息保留，辅助判断规模）。
+function maskText(v) {
+  if (v == null) return v;
+  const s = String(v);
+  if (s.length === 0) return s;
+  if (s.length === 1) return s + '**';
+  return s[0] + '*'.repeat(Math.min(s.length - 1, 12));
+}
+
+// 按 ROW_TABLES[].maskCols 脱敏一行；mask=false 时原样返回（详情编辑场景）。
+function serializeRow(meta, r, mask = true) {
+  const o = {};
+  for (const col of meta.cols) {
+    let val = meta.jsonCols.includes(col) ? parseAdminJson(r[col]) : r[col];
+    if (mask && meta.maskCols && meta.maskCols.includes(col)) {
+      // JSON 类敏感字段（meta/payload/doc/sections）整体替换为占位，不泄露结构
+      val = meta.jsonCols.includes(col) ? '[已隐藏]' : maskText(val);
+    }
+    o[col] = val;
+  }
+  return o;
 }
 
 // 组装租户可见行的查询条件；返回 { where, params }
@@ -686,11 +723,7 @@ adminRoute.get('/rows/:table', async (c) => {
     .bind(...params, limit, offset)
     .all();
 
-  const rows = (results || []).map((r) => {
-    const o = {};
-    for (const col of meta.cols) o[col] = meta.jsonCols.includes(col) ? parseAdminJson(r[col]) : r[col];
-    return o;
-  });
+  const rows = (results || []).map((r) => serializeRow(meta, r));
   return c.json({ table: c.req.param('table'), label: meta.label, rows, total: totalRow?.n || 0, limit, offset });
 });
 
@@ -710,11 +743,8 @@ adminRoute.get('/rows/:table/export', async (c) => {
     .bind(...params)
     .all();
 
-  const rows = (results || []).map((r) => {
-    const o = {};
-    for (const col of meta.cols) o[col] = meta.jsonCols.includes(col) ? parseAdminJson(r[col]) : r[col];
-    return o;
-  });
+  const rows = (results || []).map((r) => serializeRow(meta, r));
+  await audit(c, 'row.export', c.req.param('table'), { count: rows.length });
   return c.json({
     table: c.req.param('table'),
     label: meta.label,
@@ -741,14 +771,16 @@ adminRoute.get('/rows/:table/:id', async (c) => {
     .bind(...params, id)
     .first();
   if (!row) return c.json({ error: 'not found in your scope' }, 404);
-  const o = {};
-  for (const col of meta.cols) o[col] = meta.jsonCols.includes(col) ? parseAdminJson(row[col]) : row[col];
-  return c.json(o);
+  return c.json(serializeRow(meta, row, false));
 });
 
 adminRoute.put('/rows/:table/:id', async (c) => {
   const deny = requireAdmin(c);
   if (deny) return deny;
+
+  // 业务数据行级编辑收限 platform：租户管理员仅只读，防止越权改/删用户家事内容
+  const dp = requirePlatform(c);
+  if (dp) return dp;
 
   const meta = ROW_TABLES[c.req.param('table')];
   if (!meta) return c.json({ error: 'unknown table' }, 404);
@@ -796,6 +828,10 @@ adminRoute.put('/rows/:table/:id', async (c) => {
 adminRoute.delete('/rows/:table/:id', async (c) => {
   const deny = requireAdmin(c);
   if (deny) return deny;
+
+  // 业务数据行级删除收限 platform：租户管理员仅只读
+  const dp = requirePlatform(c);
+  if (dp) return dp;
 
   const meta = ROW_TABLES[c.req.param('table')];
   if (!meta) return c.json({ error: 'unknown table' }, 404);
