@@ -17,7 +17,7 @@ routes = [
 # 此值仅在"手动裸 wrangler deploy（不带 --var）"时生效，防止版本矩阵显示 null（已踩坑 3 次）。
 # 发版后请顺手更新为当前短 sha。
 [vars]
-GIT_HEAD = "f348953"
+GIT_HEAD = "5874164"
 
 # Single D1 database. Multi-tenancy is logical (tenant_id column), not per-DB.
 [[d1_databases]]
