@@ -545,6 +545,7 @@ const ROW_TABLES = {
     jsonCols: ['meta'],
     maskCols: ['title', 'meta'], // 标题/正文打码
     key: 'id',
+    familyIdCol: 'family_id', // ?fam= 按家庭过滤（共享待办挂家庭）
   },
   tasks_doc: {
     label: '任务文档',
@@ -563,6 +564,7 @@ const ROW_TABLES = {
     jsonCols: ['payload'],
     maskCols: ['payload'], // 归档内容打码
     key: 'id',
+    familyIdCol: 'family_id', // ?fam= 按家庭过滤（共享归档挂家庭）
   },
   collections: {
     label: '通用集合',
@@ -604,7 +606,8 @@ const ROW_TABLES = {
     searchable: [],
     editable: [], // 凭证类数据，只读
     jsonCols: [],
-    maskCols: ['code'], // 邀请码打码
+    maskCols: ['code'], // 邀请码打码（tenant）；platform 列表/导出可见原文（排障需核对用户口述码）
+    plainForPlatform: ['code'],
     key: 'code',
     orderCol: 'created_at',
     ownerCol: 'inviter_openid',
@@ -635,11 +638,12 @@ function maskText(v) {
 }
 
 // 按 ROW_TABLES[].maskCols 脱敏一行；mask=false 时原样返回（详情编辑场景）。
-function serializeRow(meta, r, mask = true) {
+// unmaskCols：即使 mask=true 也保持原文的列（platform 凭证排障豁免，如邀请码）。
+function serializeRow(meta, r, mask = true, unmaskCols = []) {
   const o = {};
   for (const col of meta.cols) {
     let val = meta.jsonCols.includes(col) ? parseAdminJson(r[col]) : r[col];
-    if (mask && meta.maskCols && meta.maskCols.includes(col)) {
+    if (mask && meta.maskCols && meta.maskCols.includes(col) && !unmaskCols.includes(col)) {
       // JSON 类敏感字段（meta/payload/doc/sections）整体替换为占位，不泄露结构
       val = meta.jsonCols.includes(col) ? '[已隐藏]' : maskText(val);
     }
@@ -723,7 +727,7 @@ adminRoute.get('/rows/:table', async (c) => {
     .bind(...params, limit, offset)
     .all();
 
-  const rows = (results || []).map((r) => serializeRow(meta, r));
+  const rows = (results || []).map((r) => serializeRow(meta, r, true, c.get('userRole') === 'platform' ? (meta.plainForPlatform || []) : []));
   return c.json({ table: c.req.param('table'), label: meta.label, rows, total: totalRow?.n || 0, limit, offset });
 });
 
@@ -743,7 +747,7 @@ adminRoute.get('/rows/:table/export', async (c) => {
     .bind(...params)
     .all();
 
-  const rows = (results || []).map((r) => serializeRow(meta, r));
+  const rows = (results || []).map((r) => serializeRow(meta, r, true, c.get('userRole') === 'platform' ? (meta.plainForPlatform || []) : []));
   await audit(c, 'row.export', c.req.param('table'), { count: rows.length });
   return c.json({
     table: c.req.param('table'),
