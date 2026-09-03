@@ -426,8 +426,10 @@ async function loadData() {
         // id 在不同集合间会撞车（如 cloudlet_saves/cloudlet_accounts 同用 accountId），
         // 必须用 集合:id 作唯一键，否则 querySelector 会命中另一条
         tr.dataset.row = (row.collection || '') + '‡' + row.id;
-        // 只读表（edit 为空）不渲染编辑/删除按钮，复合主键表也不支持单行取数
-        let cells = `<td class="row-actions">${t.edit.length ? `<button class="ghost sm act" data-act="edit" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">编辑</button> <button class="ghost sm act danger" data-act="del" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">删除</button>` : '<span class="empty">只读</span>'}</td>`;
+        // 编辑/删除按钮仅 platform 管理员可见：tenant 仅只读（后端 PUT/DELETE 已收限 platform），
+        // 避免 tenant 看到可点按钮却必然失败，造成困惑。
+        const canEdit = t.edit.length && ADMIN_ROLE === 'platform';
+        let cells = `<td class="row-actions">${canEdit ? `<button class="ghost sm act" data-act="edit" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">编辑</button> <button class="ghost sm act danger" data-act="del" data-id="${esc(row.id)}" data-coll="${esc(row.collection || '')}">删除</button>` : (t.edit.length ? '<span class="empty">只读（需平台管理员）</span>' : '<span class="empty">只读</span>')}</td>`;
         for (const [k] of t.cols) cells += `<td>${fmtCell(row[k])}</td>`;
         tr.innerHTML = cells;
         body.appendChild(tr);

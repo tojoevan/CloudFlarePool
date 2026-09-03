@@ -367,7 +367,7 @@ adminRoute.get('/profiles', async (c) => {
   const q4 = await db
     .prepare(
       `SELECT m.openid AS oid, COUNT(*) AS n, MAX(m.joined_at) AS t,
-              (SELECT m2.nickname FROM family_members m2 WHERE m2.openid = m.openid AND m2.nickname IS NOT NULL ORDER BY m2.joined_at DESC LIMIT 1) AS nick
+              (SELECT m2.nickname FROM family_members m2 WHERE m2.openid = m.openid AND m2.nickname IS NOT NULL AND m2.family_id = m.family_id ORDER BY m2.joined_at DESC LIMIT 1) AS nick
        FROM family_members m
        WHERE m.family_id IN (SELECT family_id FROM families WHERE ${tSql})
        GROUP BY m.openid`
@@ -621,8 +621,8 @@ function parseAdminJson(v) {
 // ===== 隐私脱敏（方案 A：后台不直接读明文隐私）=====
 // 后台只读聚合统计/排障元数据，敏感内容字段一律打码。设计取舍：
 //   - 列表/导出/画像：脱敏，防止一览无余看到用户家事内容。
-//   - 单行详情（:id GET，供 platform 编辑）：不脱敏，否则编辑表单会
-//     把脱敏值写回（如把"空调滤网清洗"存成"空**"）。platform 需看原文才能改。
+//   - 单行详情（:id GET）：platform 不脱敏（需编辑表单回填原文，否则会把
+//     "空调滤网清洗"存成"空**"）；tenant 脱敏，防其借详情绕过列表脱敏读取明文。
 //   - 本人数据（T2 通道）不经过此处，不受影响。
 
 // 文本打码：保留首字符、其余用 * 填充（长度信息保留，辅助判断规模）。
@@ -771,7 +771,9 @@ adminRoute.get('/rows/:table/:id', async (c) => {
     .bind(...params, id)
     .first();
   if (!row) return c.json({ error: 'not found in your scope' }, 404);
-  return c.json(serializeRow(meta, row, false));
+  // 脱敏按角色：platform 看原文（需编辑表单回填），tenant 仅看脱敏值，
+  // 防止 tenant 借单行详情绕过列表脱敏直接读取用户明文隐私。
+  return c.json(serializeRow(meta, row, c.get('userRole') !== 'platform'));
 });
 
 adminRoute.put('/rows/:table/:id', async (c) => {
