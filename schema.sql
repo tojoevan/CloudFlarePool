@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS tenants (
   tenant_id  TEXT PRIMARY KEY,
   appid      TEXT UNIQUE,
-  app_id     TEXT DEFAULT 'jiashiben',
+  app_id     TEXT DEFAULT 'weijiashi',
   name       TEXT,
   plan       TEXT DEFAULT 'free',
   quota      INTEGER DEFAULT 10000,

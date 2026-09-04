@@ -58,59 +58,59 @@ test('public endpoints need no key', async () => {
 });
 
 test('guard: missing X-Sync-Key -> 403', async () => {
-  const r = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', { method: 'GET' });
+  const r = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', { method: 'GET' });
   assert.equal(r.status, 403);
 });
 
 test('tenant + todo CRUD with per-user isolation', async () => {
-  let r = await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', appid: 'wx_x', name: '微家事' } }));
+  let r = await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', appid: 'wx_x', name: '微家事' } }));
   assert.equal(r.status, 200);
 
-  r = await jres(await req('POST', '/t/jiashiben/todos', { headers: { 'X-User-Id': 'u1' }, body: { id: 't1', title: '买菜', tag: 'shop', shared: true, family_id: 'fam1' } }));
+  r = await jres(await req('POST', '/t/weijiashi/todos', { headers: { 'X-User-Id': 'u1' }, body: { id: 't1', title: '买菜', tag: 'shop', shared: true, family_id: 'fam1' } }));
   assert.equal(r.status, 200);
 
-  r = await jres(await req('GET', '/t/jiashiben/todos?owner=me', { headers: { 'X-User-Id': 'u1' } }));
+  r = await jres(await req('GET', '/t/weijiashi/todos?owner=me', { headers: { 'X-User-Id': 'u1' } }));
   assert.equal(r.status, 200);
   assert.equal(r.body.length, 1);
   assert.equal(r.body[0].title, '买菜');
 
-  r = await jres(await req('PUT', '/t/jiashiben/todos/t1', { headers: { 'X-User-Id': 'u1' }, body: { title: '买水果' } }));
+  r = await jres(await req('PUT', '/t/weijiashi/todos/t1', { headers: { 'X-User-Id': 'u1' }, body: { title: '买水果' } }));
   assert.equal(r.status, 200);
 
-  r = await jres(await req('GET', '/t/jiashiben/todos/t1', { headers: { 'X-User-Id': 'u1' } }));
+  r = await jres(await req('GET', '/t/weijiashi/todos/t1', { headers: { 'X-User-Id': 'u1' } }));
   assert.equal(r.body.title, '买水果');
 
   // Another user cannot delete u1's todo.
-  r = await jres(await req('DELETE', '/t/jiashiben/todos/t1', { headers: { 'X-User-Id': 'u2' } }));
+  r = await jres(await req('DELETE', '/t/weijiashi/todos/t1', { headers: { 'X-User-Id': 'u2' } }));
   assert.equal(r.status, 403);
 
   // owner can delete.
-  r = await jres(await req('DELETE', '/t/jiashiben/todos/t1', { headers: { 'X-User-Id': 'u1' } }));
+  r = await jres(await req('DELETE', '/t/weijiashi/todos/t1', { headers: { 'X-User-Id': 'u1' } }));
   assert.equal(r.status, 200);
 });
 
 test('archive + family/shared aggregation', async () => {
-  await jres(await req('POST', '/t/jiashiben/archive', { headers: { 'X-User-Id': 'u1' }, body: { id: 'a1', type: 'todo', payload: { title: '旧任务' }, shared: true, family_id: 'fam1' } }));
-  const r = await jres(await req('GET', '/t/jiashiben/family/shared'));
+  await jres(await req('POST', '/t/weijiashi/archive', { headers: { 'X-User-Id': 'u1' }, body: { id: 'a1', type: 'todo', payload: { title: '旧任务' }, shared: true, family_id: 'fam1' } }));
+  const r = await jres(await req('GET', '/t/weijiashi/family/shared'));
   assert.equal(r.status, 200);
   assert.equal(r.body.archive.length, 1);
   assert.equal(r.body.archive[0].payload.title, '旧任务');
 });
 
 test('tasks document per user', async () => {
-  let r = await jres(await req('PUT', '/t/jiashiben/tasks', { headers: { 'X-User-Id': 'u1' }, body: { sections: [{ name: '工作', items: [] }] } }));
+  let r = await jres(await req('PUT', '/t/weijiashi/tasks', { headers: { 'X-User-Id': 'u1' }, body: { sections: [{ name: '工作', items: [] }] } }));
   assert.equal(r.status, 200);
-  r = await jres(await req('GET', '/t/jiashiben/tasks', { headers: { 'X-User-Id': 'u1' } }));
+  r = await jres(await req('GET', '/t/weijiashi/tasks', { headers: { 'X-User-Id': 'u1' } }));
   assert.equal(r.body.sections.length, 1);
 });
 
 test('image upload + fetch (R2)', async () => {
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
-  const r = await jres(await req('POST', '/t/jiashiben/img', { headers: { 'X-User-Id': 'u1', 'content-type': 'application/json' }, body: { data: png, contentType: 'image/png' } }));
+  const r = await jres(await req('POST', '/t/weijiashi/img', { headers: { 'X-User-Id': 'u1', 'content-type': 'application/json' }, body: { data: png, contentType: 'image/png' } }));
   assert.equal(r.status, 200);
   const key = r.body.key;
 
-  const g = await mf.dispatchFetch(BASE + '/t/jiashiben/img/' + key, { method: 'GET', headers: { 'X-Sync-Key': KEY } });
+  const g = await mf.dispatchFetch(BASE + '/t/weijiashi/img/' + key, { method: 'GET', headers: { 'X-Sync-Key': KEY } });
   assert.equal(g.status, 200);
   assert.equal(g.headers.get('content-type'), 'image/png');
   const buf = Buffer.from(await g.arrayBuffer());
@@ -124,12 +124,12 @@ test('unknown tenant -> 404', async () => {
 
 // ===== B1: dual-mode auth (Bearer JWT channel) =====
 test('B1: gateway-signed JWT reaches data lake; owner derived from JWT sub', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', appid: 'wx_x', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', appid: 'wx_x', name: '微家事' } }));
   const jwt = signJwt(
     {
       sub: 'u_jwt',
-      aid: 'jiashiben',
-      tid: 'jiashiben',
+      aid: 'weijiashi',
+      tid: 'weijiashi',
       typ: 'wx',
       scp: ['user:read', 'user:write'],
       iss: 'gateway',
@@ -142,7 +142,7 @@ test('B1: gateway-signed JWT reaches data lake; owner derived from JWT sub', asy
   // POST via Bearer (no X-Sync-Key). Body has no owner_openid, so route
   // falls back to the injected x-user-id (= JWT sub).
   const r = await jres(
-    await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + jwt, 'content-type': 'application/json' },
       body: JSON.stringify({ id: 'jt1', title: 'JWT 任务' }),
@@ -151,7 +151,7 @@ test('B1: gateway-signed JWT reaches data lake; owner derived from JWT sub', asy
   assert.equal(r.status, 200);
 
   const got = await jres(
-    await mf.dispatchFetch(BASE + '/t/jiashiben/todos/jt1', {
+    await mf.dispatchFetch(BASE + '/t/weijiashi/todos/jt1', {
       method: 'GET',
       headers: { Authorization: 'Bearer ' + jwt },
     })
@@ -160,16 +160,16 @@ test('B1: gateway-signed JWT reaches data lake; owner derived from JWT sub', asy
   assert.equal(got.body.title, 'JWT 任务');
   assert.equal(got.body.owner_openid, 'u_jwt', 'owner must come from JWT sub, not any injected header');
 
-  await jres(await req('DELETE', '/t/jiashiben/todos/jt1', { headers: { 'X-User-Id': 'u_jwt' } }));
+  await jres(await req('DELETE', '/t/weijiashi/todos/jt1', { headers: { 'X-User-Id': 'u_jwt' } }));
 });
 
 test('B1: owner_openid sent in request body is ignored (anti-spoof)', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   const jwt = signJwt(
     {
       sub: 'u_attacker',
-      aid: 'jiashiben',
-      tid: 'jiashiben',
+      aid: 'weijiashi',
+      tid: 'weijiashi',
       typ: 'wx',
       scp: ['user:read', 'user:write'],
       iss: 'gateway',
@@ -181,7 +181,7 @@ test('B1: owner_openid sent in request body is ignored (anti-spoof)', async () =
 
   // Attacker tries to attribute the row to someone else via body.owner_openid.
   const r = await jres(
-    await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + jwt, 'content-type': 'application/json' },
       body: JSON.stringify({ id: 'attack1', title: 'x', owner_openid: 'victim_openid' }),
@@ -190,7 +190,7 @@ test('B1: owner_openid sent in request body is ignored (anti-spoof)', async () =
   assert.equal(r.status, 200);
 
   const got = await jres(
-    await mf.dispatchFetch(BASE + '/t/jiashiben/todos/attack1', {
+    await mf.dispatchFetch(BASE + '/t/weijiashi/todos/attack1', {
       method: 'GET',
       headers: { Authorization: 'Bearer ' + jwt },
     })
@@ -202,16 +202,16 @@ test('B1: owner_openid sent in request body is ignored (anti-spoof)', async () =
     'body.owner_openid must be ignored; ownership comes from the token, never the client'
   );
 
-  await jres(await req('DELETE', '/t/jiashiben/todos/attack1', { headers: { 'X-User-Id': 'u_attacker' } }));
+  await jres(await req('DELETE', '/t/weijiashi/todos/attack1', { headers: { 'X-User-Id': 'u_attacker' } }));
 });
 
 test('B1: unknown-kid / tampered JWT -> 401', async () => {
   const jwt = signJwt(
-    { sub: 'x', tid: 'jiashiben', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    { sub: 'x', tid: 'weijiashi', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
     PRIV_PEM,
     { kid: 'unknown-kid' }
   );
-  const r = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+  const r = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
     method: 'GET',
     headers: { Authorization: 'Bearer ' + jwt },
   });
@@ -223,7 +223,7 @@ test('B1: JWT with wrong tenant -> 403', async () => {
     { sub: 'x', tid: 'other-tenant', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
     PRIV_PEM
   );
-  const r = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+  const r = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
     method: 'GET',
     headers: { Authorization: 'Bearer ' + jwt },
   });
@@ -232,7 +232,7 @@ test('B1: JWT with wrong tenant -> 403', async () => {
 
 // ===== Phase 1: app dimension (app_id + tenant_id) =====
 test('Phase1: app registry + app-scoped tenant CRUD', async () => {
-  let r = await jres(await req('POST', '/v1/a', { body: { app_id: 'demo', name: 'Demo App', owner: 'jiashiben' } }));
+  let r = await jres(await req('POST', '/v1/a', { body: { app_id: 'demo', name: 'Demo App', owner: 'weijiashi' } }));
   assert.equal(r.status, 200, 'create app');
 
   r = await jres(await req('GET', '/v1/a/demo'));
@@ -252,13 +252,13 @@ test('Phase1: app registry + app-scoped tenant CRUD', async () => {
 });
 
 test('Phase1: JWT with wrong app (aid mismatch) -> 403', async () => {
-  // Ensure jiashiben resolves to app jiashiben deterministically.
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', app_id: 'jiashiben', name: '微家事' } }));
+  // Ensure weijiashi resolves to app weijiashi deterministically.
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   const jwt = signJwt(
-    { sub: 'x', aid: 'other-app', tid: 'jiashiben', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    { sub: 'x', aid: 'other-app', tid: 'weijiashi', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
     PRIV_PEM
   );
-  const r = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+  const r = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
     method: 'GET',
     headers: { Authorization: 'Bearer ' + jwt },
   });
@@ -268,58 +268,58 @@ test('Phase1: JWT with wrong app (aid mismatch) -> 403', async () => {
 test('Phase1: legacy JWT without aid still passes (no regression)', async () => {
   // A token emitted before Phase 1 carries no `aid`; it must NOT be rejected
   // on the existing mini-program path.
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   const jwt = signJwt(
-    { sub: 'u_legacy', tid: 'jiashiben', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    { sub: 'u_legacy', tid: 'weijiashi', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
     PRIV_PEM
   );
   const r = await jres(
-    await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + jwt, 'content-type': 'application/json' },
       body: JSON.stringify({ id: 'legacy1', title: 'legacy task' }),
     })
   );
   assert.equal(r.status, 200, 'legacy token (no aid) must still reach the lake');
-  await jres(await req('DELETE', '/t/jiashiben/todos/legacy1', { headers: { 'X-User-Id': 'u_legacy' } }));
+  await jres(await req('DELETE', '/t/weijiashi/todos/legacy1', { headers: { 'X-User-Id': 'u_legacy' } }));
 });
 
 test('Phase1: generic collection CRUD + owner isolation', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'jiashiben', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
 
   // register a collection schema for the app
-  let r = await jres(await req('POST', '/v1/a/jiashiben/collections', { body: { collection: 'notes', schema_json: { fields: { text: 'string' } } } }));
+  let r = await jres(await req('POST', '/v1/a/weijiashi/collections', { body: { collection: 'notes', schema_json: { fields: { text: 'string' } } } }));
   assert.equal(r.status, 200);
-  r = await jres(await req('GET', '/v1/a/jiashiben/collections'));
+  r = await jres(await req('GET', '/v1/a/weijiashi/collections'));
   assert.equal(r.status, 200);
   assert.ok(r.body.some((c) => c.collection === 'notes'), 'collection schema should be registered');
 
   // generic CRUD under /t/:tenant/c/:collection
-  r = await jres(await req('POST', '/t/jiashiben/c/notes', { headers: { 'X-User-Id': 'u1' }, body: { id: 'n1', doc: { text: 'hello' } } }));
+  r = await jres(await req('POST', '/t/weijiashi/c/notes', { headers: { 'X-User-Id': 'u1' }, body: { id: 'n1', doc: { text: 'hello' } } }));
   assert.equal(r.status, 200);
-  assert.equal(r.body.app, 'jiashiben', 'app_id must be resolved from the tenant');
+  assert.equal(r.body.app, 'weijiashi', 'app_id must be resolved from the tenant');
 
-  r = await jres(await req('GET', '/t/jiashiben/c/notes?owner=me', { headers: { 'X-User-Id': 'u1' } }));
+  r = await jres(await req('GET', '/t/weijiashi/c/notes?owner=me', { headers: { 'X-User-Id': 'u1' } }));
   assert.equal(r.status, 200);
   assert.equal(r.body.length, 1);
   assert.equal(r.body[0].doc.text, 'hello');
 
-  r = await jres(await req('PUT', '/t/jiashiben/c/notes/n1', { headers: { 'X-User-Id': 'u1' }, body: { doc: { text: 'world' } } }));
+  r = await jres(await req('PUT', '/t/weijiashi/c/notes/n1', { headers: { 'X-User-Id': 'u1' }, body: { doc: { text: 'world' } } }));
   assert.equal(r.status, 200);
 
-  r = await jres(await req('GET', '/t/jiashiben/c/notes/n1', { headers: { 'X-User-Id': 'u1' } }));
+  r = await jres(await req('GET', '/t/weijiashi/c/notes/n1', { headers: { 'X-User-Id': 'u1' } }));
   assert.equal(r.body.doc.text, 'world');
 
   // owner isolation
-  r = await jres(await req('DELETE', '/t/jiashiben/c/notes/n1', { headers: { 'X-User-Id': 'u2' } }));
+  r = await jres(await req('DELETE', '/t/weijiashi/c/notes/n1', { headers: { 'X-User-Id': 'u2' } }));
   assert.equal(r.status, 403);
-  r = await jres(await req('DELETE', '/t/jiashiben/c/notes/n1', { headers: { 'X-User-Id': 'u1' } }));
+  r = await jres(await req('DELETE', '/t/weijiashi/c/notes/n1', { headers: { 'X-User-Id': 'u1' } }));
   assert.equal(r.status, 200);
 });
 
 // ===== Phase 2 (B2): T3 service keys (symmetric HMAC) =====
 test('B2: issue api_key, sign service token, reach data lake via HMAC', async () => {
-  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read', 'data:write'] } }));
+  const issued = await jres(await req('POST', '/v1/a/weijiashi/keys', { body: { scope: ['data:read', 'data:write'] } }));
   assert.equal(issued.status, 200);
   assert.ok(issued.body.raw_secret, 'raw_secret must be returned once');
   assert.ok(issued.body.kid, 'kid returned');
@@ -327,32 +327,32 @@ test('B2: issue api_key, sign service token, reach data lake via HMAC', async ()
   const svc = signServiceToken({
     serviceId: issued.body.id,
     rawSecret: issued.body.raw_secret,
-    appId: 'jiashiben',
+    appId: 'weijiashi',
     scope: ['data:read', 'data:write'],
   });
 
   // service token reaches the lake through the dualGuard service branch.
   const r = await jres(
-    await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+    await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + svc, 'content-type': 'application/json' },
       body: JSON.stringify({ id: 'svc1', title: 'service task' }),
     })
   );
   assert.equal(r.status, 200, 'service token must reach the lake');
-  await jres(await req('DELETE', '/t/jiashiben/todos/svc1', { headers: { 'X-User-Id': issued.body.id } }));
+  await jres(await req('DELETE', '/t/weijiashi/todos/svc1', { headers: { 'X-User-Id': issued.body.id } }));
 });
 
 test('B2: tenant_bound key rejects wrong tenant, allows its own', async () => {
   const issued = await jres(
-    await req('POST', '/v1/a/jiashiben/keys', { body: { tenant_bound: true, tenant_id: 'jiashiben', scope: ['data:read'] } })
+    await req('POST', '/v1/a/weijiashi/keys', { body: { tenant_bound: true, tenant_id: 'weijiashi', scope: ['data:read'] } })
   );
   assert.equal(issued.status, 200);
   const svc = signServiceToken({
     serviceId: issued.body.id,
     rawSecret: issued.body.raw_secret,
-    appId: 'jiashiben',
-    tenantId: 'jiashiben',
+    appId: 'weijiashi',
+    tenantId: 'weijiashi',
     scope: ['data:read'],
   });
 
@@ -362,7 +362,7 @@ test('B2: tenant_bound key rejects wrong tenant, allows its own', async () => {
   });
   assert.equal(bad.status, 403, 'tenant_bound key must reject other tenants');
 
-  const ok = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+  const ok = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
     method: 'GET',
     headers: { Authorization: 'Bearer ' + svc },
   });
@@ -370,18 +370,18 @@ test('B2: tenant_bound key rejects wrong tenant, allows its own', async () => {
 });
 
 test('B2: revoked key is rejected', async () => {
-  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read'] } }));
+  const issued = await jres(await req('POST', '/v1/a/weijiashi/keys', { body: { scope: ['data:read'] } }));
   const svc = signServiceToken({
     serviceId: issued.body.id,
     rawSecret: issued.body.raw_secret,
-    appId: 'jiashiben',
+    appId: 'weijiashi',
     scope: ['data:read'],
   });
 
-  const rev = await jres(await req('POST', `/v1/a/jiashiben/keys/${issued.body.id}/revoke`));
+  const rev = await jres(await req('POST', `/v1/a/weijiashi/keys/${issued.body.id}/revoke`));
   assert.equal(rev.status, 200);
 
-  const r = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+  const r = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
     method: 'GET',
     headers: { Authorization: 'Bearer ' + svc },
   });
@@ -389,22 +389,22 @@ test('B2: revoked key is rejected', async () => {
 });
 
 test('B2: rotation keeps old kid valid during grace period', async () => {
-  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read'] } }));
+  const issued = await jres(await req('POST', '/v1/a/weijiashi/keys', { body: { scope: ['data:read'] } }));
   const oldKid = issued.body.kid;
   const oldToken = signServiceToken({
     serviceId: issued.body.id,
     rawSecret: issued.body.raw_secret,
-    appId: 'jiashiben',
+    appId: 'weijiashi',
     scope: ['data:read'],
     kid: oldKid,
   });
 
-  const rot = await jres(await req('POST', `/v1/a/jiashiben/keys/${issued.body.id}/rotate`));
+  const rot = await jres(await req('POST', `/v1/a/weijiashi/keys/${issued.body.id}/rotate`));
   assert.equal(rot.status, 200);
   assert.notEqual(rot.body.kid, oldKid, 'new kid after rotation');
 
   // old kid still valid (grace period)
-  const oldR = await mf.dispatchFetch(BASE + '/t/jiashiben/todos', {
+  const oldR = await mf.dispatchFetch(BASE + '/t/weijiashi/todos', {
     method: 'GET',
     headers: { Authorization: 'Bearer ' + oldToken },
   });
@@ -415,13 +415,13 @@ test('B2: rotation keeps old kid valid during grace period', async () => {
 // A service key's scope (data:read / data:write / data:*) must be enforced by
 // the lake, not just declared in the MCP tool layer.
 test('Scope: read-only service key can read but NOT write (403)', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
-  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read'] } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
+  const issued = await jres(await req('POST', '/v1/a/weijiashi/keys', { body: { scope: ['data:read'] } }));
   assert.equal(issued.status, 200);
   const svc = signServiceToken({
     serviceId: issued.body.id,
     rawSecret: issued.body.raw_secret,
-    appId: 'jiashiben',
+    appId: 'weijiashi',
     scope: ['data:read'],
   });
 
@@ -440,12 +440,12 @@ test('Scope: read-only service key can read but NOT write (403)', async () => {
 });
 
 test('Scope: write-only service key can write but NOT read (least privilege)', async () => {
-  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:write'] } }));
+  const issued = await jres(await req('POST', '/v1/a/weijiashi/keys', { body: { scope: ['data:write'] } }));
   assert.equal(issued.status, 200);
   const svc = signServiceToken({
     serviceId: issued.body.id,
     rawSecret: issued.body.raw_secret,
-    appId: 'jiashiben',
+    appId: 'weijiashi',
     scope: ['data:write'],
   });
 
@@ -465,12 +465,12 @@ test('Scope: write-only service key can write but NOT read (least privilege)', a
 });
 
 test('Scope: data:* wildcard grants both read and write', async () => {
-  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:*'] } }));
+  const issued = await jres(await req('POST', '/v1/a/weijiashi/keys', { body: { scope: ['data:*'] } }));
   assert.equal(issued.status, 200);
   const svc = signServiceToken({
     serviceId: issued.body.id,
     rawSecret: issued.body.raw_secret,
-    appId: 'jiashiben',
+    appId: 'weijiashi',
     scope: ['data:*'],
   });
 
@@ -490,14 +490,14 @@ test('Scope: data:* wildcard grants both read and write', async () => {
 });
 
 test('Scope: service token cannot manage platform resources (mint keys)', async () => {
-  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read'] } }));
+  const issued = await jres(await req('POST', '/v1/a/weijiashi/keys', { body: { scope: ['data:read'] } }));
   const svc = signServiceToken({
     serviceId: issued.body.id,
     rawSecret: issued.body.raw_secret,
-    appId: 'jiashiben',
+    appId: 'weijiashi',
     scope: ['data:read'],
   });
-  const r = await mf.dispatchFetch(BASE + '/v1/a/jiashiben/keys', {
+  const r = await mf.dispatchFetch(BASE + '/v1/a/weijiashi/keys', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + svc, 'content-type': 'application/json' },
     body: JSON.stringify({ scope: ['data:read'] }),
@@ -512,10 +512,10 @@ test('B2: /internal/account/verify rejects unknown user', async () => {
 
 // ===== Phase 3 (B3): T4 admin read-only dashboard =====
 test('Phase3: T4 admin reads /admin/stats for own tenant', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   await jres(await req('POST', '/t/weijiashi/todos', { headers: { 'X-User-Id': 'u1' }, body: { id: 'pa1', title: 'admin-visible' } }));
 
-  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'weijiashi', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
   const r = await jres(
     await mf.dispatchFetch(BASE + '/admin/stats', {
       method: 'GET',
@@ -532,7 +532,7 @@ test('Phase3: T4 admin reads /admin/stats for own tenant', async () => {
 
 test('Phase3: T2 token cannot reach /admin (403)', async () => {
   const t2 = signJwt(
-    { sub: 'u2', aid: 'jiashiben', tid: 'weijiashi', typ: 'account', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    { sub: 'u2', aid: 'weijiashi', tid: 'weijiashi', typ: 'account', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
     PRIV_PEM
   );
   const r = await mf.dispatchFetch(BASE + '/admin/stats', {
@@ -544,14 +544,14 @@ test('Phase3: T2 token cannot reach /admin (403)', async () => {
 
 // ===== Phase 3 (B3): T4 admin — Account & Key Center =====
 test('Phase3: T4 lists users of own tenant + disable/enable', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   const db = await mf.getD1Database('DB');
   await db
     .prepare('INSERT INTO users (id, tenant_id, email, status, provider, created_at) VALUES (?,?,?,?,?,?)')
     .bind('u_adm_1', 'weijiashi', 'member@weijiashi.app', 'active', 'native', Date.now())
     .run();
 
-  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'weijiashi', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
 
   let r = await jres(await mf.dispatchFetch(BASE + '/admin/users', { method: 'GET', headers: { Authorization: 'Bearer ' + t4 } }));
   assert.equal(r.status, 200);
@@ -582,8 +582,8 @@ test('Phase3: T4 lists users of own tenant + disable/enable', async () => {
 });
 
 test('Phase3: T4 lists + issues + revokes service keys', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
-  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
+  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'weijiashi', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
 
   let r = await jres(await mf.dispatchFetch(BASE + '/admin/keys', { method: 'GET', headers: { Authorization: 'Bearer ' + t4 } }));
   assert.equal(r.status, 200);
@@ -622,10 +622,10 @@ test('Phase3: T4 self password change (wrong old -> 401, correct old -> 200)', a
   const hash = await hashPassword(oldPwd);
   await db
     .prepare('INSERT INTO admin_accounts (id, app_id, tenant_id, email, pwd_hash, role, status, created_at) VALUES (?,?,?,?,?,?,?,?)')
-    .bind('adm_self', 'jiashiben', 'weijiashi', 'self@weijiashi.app', hash, 'tenant', 'active', Date.now())
+    .bind('adm_self', 'weijiashi', 'weijiashi', 'self@weijiashi.app', hash, 'tenant', 'active', Date.now())
     .run();
 
-  const t4 = signT4({ sub: 'adm_self', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const t4 = signT4({ sub: 'adm_self', role: 'tenant', appId: 'weijiashi', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
 
   let r = await jres(
     await mf.dispatchFetch(BASE + '/admin/me/password', {
@@ -675,11 +675,11 @@ test('Phase3: T4 self password change (wrong old -> 401, correct old -> 200)', a
 
 // ===== Phase 3 (B3): T4 Data Browser & Content Management =====
 test('Phase3: T4 data browser lists, searches, edits, deletes own-tenant rows', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   await jres(await req('POST', '/t/weijiashi/todos', { headers: { 'X-User-Id': 'u1' }, body: { id: 'db1', title: 'browse-me', tag: 'shop' } }));
   await jres(await req('POST', '/t/weijiashi/archive', { headers: { 'X-User-Id': 'u1' }, body: { id: 'db_a1', type: 'todo', payload: { title: '旧' } } }));
 
-  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const t4 = signT4({ sub: 'adm1', role: 'tenant', appId: 'weijiashi', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
   const hdr = { Authorization: 'Bearer ' + t4 };
 
   // list todos
@@ -746,14 +746,14 @@ test('Phase3: T4 data browser lists, searches, edits, deletes own-tenant rows', 
 
 // ===== Phase 3 (B3): T4 admin audit log =====
 test('Phase3: T4 audit log records mutating actions + role-scoped read', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   const db = await mf.getD1Database('DB');
   await db
     .prepare('INSERT INTO users (id, tenant_id, email, status, provider, created_at) VALUES (?,?,?,?,?,?)')
     .bind('u_aud_1', 'weijiashi', 'aud@weijiashi.app', 'active', 'native', Date.now())
     .run();
 
-  const t4 = signT4({ sub: 'adm_aud', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const t4 = signT4({ sub: 'adm_aud', role: 'tenant', appId: 'weijiashi', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
   const hdr = { Authorization: 'Bearer ' + t4, 'content-type': 'application/json' };
 
   // 1) disable a user -> audited
@@ -781,7 +781,7 @@ test('Phase3: T4 audit log records mutating actions + role-scoped read', async (
 
   // 5) T2 (account) cannot read the audit log
   const t2 = signJwt(
-    { sub: 'u2', aid: 'jiashiben', tid: 'weijiashi', typ: 'account', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
+    { sub: 'u2', aid: 'weijiashi', tid: 'weijiashi', typ: 'account', iss: 'gateway', aud: 'data.kapibala.icu', exp: Math.floor(Date.now() / 1000) + 3600 },
     PRIV_PEM
   );
   r = await jres(await mf.dispatchFetch(BASE + '/admin/audit', { method: 'GET', headers: { Authorization: 'Bearer ' + t2 } }));
@@ -792,7 +792,7 @@ test('Phase3: T4 audit log records mutating actions + role-scoped read', async (
 
 // ===== Rate limiting (D1-backed fixed window) =====
 test('RateLimit: auth verify 5/min per email -> 6th is 429, other email unaffected', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   const db = await mf.getD1Database('DB');
   await db
     .prepare("INSERT INTO users (id, tenant_id, email, status, provider, created_at) VALUES ('rl1','weijiashi','rl@weijiashi.app','active','native',?)")
@@ -821,12 +821,12 @@ test('RateLimit: auth verify 5/min per email -> 6th is 429, other email unaffect
 });
 
 test('RateLimit: service key over write limit -> 429 (pre-seeded counter)', async () => {
-  const issued = await jres(await req('POST', '/v1/a/jiashiben/keys', { body: { scope: ['data:read', 'data:write'] } }));
+  const issued = await jres(await req('POST', '/v1/a/weijiashi/keys', { body: { scope: ['data:read', 'data:write'] } }));
   assert.equal(issued.status, 200);
   const svc = signServiceToken({
     serviceId: issued.body.id,
     rawSecret: issued.body.raw_secret,
-    appId: 'jiashiben',
+    appId: 'weijiashi',
     scope: ['data:read', 'data:write'],
   });
 
@@ -849,7 +849,7 @@ test('RateLimit: service key over write limit -> 429 (pre-seeded counter)', asyn
 
 // ===== 家庭（多家庭模型，每人最多 3 个）=====
 test('family: create + invite + accept + mine + members + owner禁退 + transfer + leave', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
 
   // u1 创建家庭
   let r = await jres(await req('POST', '/t/weijiashi/family', { headers: { 'X-User-Id': 'u1' }, body: { name: '我家' } }));
@@ -910,7 +910,7 @@ test('family: create + invite + accept + mine + members + owner禁退 + transfer
 });
 
 test('family: 每人最多加入 3 个家庭', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   for (let i = 1; i <= 3; i++) {
     const r = await jres(await req('POST', '/t/weijiashi/family', { headers: { 'X-User-Id': 'u3' }, body: { name: 'F' + i } }));
     assert.equal(r.status, 200, '前 3 个家庭应创建成功');
@@ -920,7 +920,7 @@ test('family: 每人最多加入 3 个家庭', async () => {
 });
 
 test('family: 重复接受 -> joined:false；已用邀请 -> 409', async () => {
-  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'jiashiben', name: '微家事' } }));
+  await jres(await req('POST', '/tenants', { body: { tenant_id: 'weijiashi', app_id: 'weijiashi', name: '微家事' } }));
   const c = await jres(await req('POST', '/t/weijiashi/family', { headers: { 'X-User-Id': 'a1' }, body: { name: 'A家' } }));
   const fa = c.body.family_id;
   const inv = await jres(await req('POST', '/t/weijiashi/family/invite', { headers: { 'X-User-Id': 'a1' }, body: { family_id: fa } }));
@@ -957,7 +957,7 @@ test('Phase3: T4 generates recovery code, then /recover self-resets password', a
   const codeHash = createHash('sha256').update(code).digest('hex');
   await db
     .prepare('INSERT INTO admin_accounts (id, app_id, tenant_id, email, pwd_hash, role, status, recovery_hash, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-    .bind('adm_rc', 'jiashiben', 'weijiashi', email, await hashPassword('oldpass12'), 'tenant', 'active', codeHash, Date.now())
+    .bind('adm_rc', 'weijiashi', 'weijiashi', email, await hashPassword('oldpass12'), 'tenant', 'active', codeHash, Date.now())
     .run();
 
   // wrong code -> 400 (generic, no enumeration)
@@ -980,9 +980,9 @@ test('Phase3: T4 can generate a recovery code (plaintext returned once, hash sto
   const db = await mf.getD1Database('DB');
   await db
     .prepare('INSERT INTO admin_accounts (id, app_id, tenant_id, email, pwd_hash, role, status, created_at) VALUES (?,?,?,?,?,?,?,?)')
-    .bind('adm_gen', 'jiashiben', 'weijiashi', 'gen@ex.com', await hashPassword('init1234'), 'tenant', 'active', Date.now())
+    .bind('adm_gen', 'weijiashi', 'weijiashi', 'gen@ex.com', await hashPassword('init1234'), 'tenant', 'active', Date.now())
     .run();
-  const t4 = signT4({ sub: 'adm_gen', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const t4 = signT4({ sub: 'adm_gen', role: 'tenant', appId: 'weijiashi', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
   const r = await jres(await mf.dispatchFetch(BASE + '/admin/me/recovery/generate', { method: 'POST', headers: { Authorization: 'Bearer ' + t4 } }));
   assert.equal(r.status, 200, 'recovery generate must succeed');
   assert.ok(typeof r.body.recovery_code === 'string' && r.body.recovery_code.length >= 8, 'recovery_code returned');
@@ -994,11 +994,11 @@ test('Phase3: platform lists /accounts + resets; tenant forbidden from both', as
   const db = await mf.getD1Database('DB');
   await db
     .prepare('INSERT INTO admin_accounts (id, app_id, tenant_id, email, pwd_hash, role, status, created_at) VALUES (?,?,?,?,?,?,?,?)')
-    .bind('adm_target', 'jiashiben', 'weijiashi', 'target@ex.com', await hashPassword('init1234'), 'tenant', 'active', Date.now())
+    .bind('adm_target', 'weijiashi', 'weijiashi', 'target@ex.com', await hashPassword('init1234'), 'tenant', 'active', Date.now())
     .run();
 
-  const plat = signT4({ sub: 'adm_plat', role: 'platform', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
-  const ten = signT4({ sub: 'adm_ten', role: 'tenant', appId: 'jiashiben', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const plat = signT4({ sub: 'adm_plat', role: 'platform', appId: 'weijiashi', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
+  const ten = signT4({ sub: 'adm_ten', role: 'tenant', appId: 'weijiashi', tenantId: 'weijiashi', privateKeyPem: PRIV_PEM });
 
   let r = await jres(await mf.dispatchFetch(BASE + '/admin/accounts', { method: 'GET', headers: { Authorization: 'Bearer ' + ten } }));
   assert.equal(r.status, 403, 'tenant role must be forbidden from /accounts');

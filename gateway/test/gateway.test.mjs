@@ -77,7 +77,7 @@ test('gateway: login + proxy injects headers & tenant path; rejects bad token', 
   process.env.WX_APPID = 'wxapp';
   process.env.WX_APPSECRET = 'wxsec';
   process.env.SESSION_SECRET = 'sess-secret';
-  process.env.TENANT_ID = 'jiashiben';
+  process.env.TENANT_ID = 'weijiashi';
   process.env.PORT = '0';
   // 部署端点需 Ed25519 私钥验签（CFG 在模块加载时读取）
   const { privateKey } = generateKeyPairSync('ed25519');
@@ -99,10 +99,10 @@ test('gateway: login + proxy injects headers & tenant path; rejects bad token', 
     const { token } = JSON.parse(login.body);
     assert.ok(token && token.includes('.'), 'should return a signed token');
 
-    // 带 token 访问 /api/data/todos -> 数据湖应收到 /t/jiashiben/todos + 注入头
+    // 带 token 访问 /api/data/todos -> 数据湖应收到 /t/weijiashi/todos + 注入头
     const ok = await get(gwPort, '/api/data/todos', { Authorization: `Bearer ${token}` });
     assert.equal(ok.status, 200);
-    assert.equal(lastLakeReq.path, '/t/jiashiben/todos');
+    assert.equal(lastLakeReq.path, '/t/weijiashi/todos');
     assert.equal(lastLakeReq.headers['x-sync-key'], 'lake-key-xyz');
     assert.equal(lastLakeReq.headers['x-user-id'], 'oTEST123');
     assert.ok(!lastLakeReq.headers['authorization'], '不应把客户端 token 透传给数据湖');

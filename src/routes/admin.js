@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { hashPassword, verifyPassword } from '../lib/password.js';
+import { DEFAULT_APP_ID } from '../lib/schema.js';
 
 // T4 admin read-only dashboard (Phase 3).
 //
@@ -73,7 +74,7 @@ async function audit(c, action, target, detail) {
       )
       .bind(
         crypto.randomUUID(),
-        c.get('userAid') || 'jiashiben',
+        c.get('userAid') || DEFAULT_APP_ID,
         c.get('userTid') || null,
         c.get('userId') || null,
         action,
@@ -425,7 +426,7 @@ adminRoute.post('/keys', async (c) => {
 
   const db = c.env.DB;
   const tid = c.get('userTid') || 'weijiashi';
-  const appId = c.get('userAid') || 'jiashiben';
+  const appId = c.get('userAid') || DEFAULT_APP_ID;
   const b = await c.req.json().catch(() => ({}));
   const scope = Array.isArray(b.scope) && b.scope.length ? b.scope : ['data:read', 'data:write'];
 

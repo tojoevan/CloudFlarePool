@@ -4,13 +4,15 @@
 // This module is also used by the dev `/__setup` endpoint and `schema.sql`.
 
 // The first app. Used as the default when an existing tenant has no explicit app_id.
-export const DEFAULT_APP_ID = 'jiashiben';
+// 2026-09-05：app_id 已从 'jiashiben' 统一为 'weijiashi'（apps/tenants/users/
+// collections/api_keys/admin_* 共 77 行已迁移，备份见 .archive/d1-backups）。
+export const DEFAULT_APP_ID = 'weijiashi';
 
 export const CREATE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS tenants (
     tenant_id  TEXT PRIMARY KEY,          -- e.g. "weijiashi"
     appid      TEXT UNIQUE,              -- WeChat AppID; gateway maps AppID -> tenant
-    app_id     TEXT DEFAULT 'jiashiben', -- app this tenant belongs to (1 tenant = 1 app)
+    app_id     TEXT DEFAULT 'weijiashi', -- app this tenant belongs to (1 tenant = 1 app)
     name       TEXT,
     plan       TEXT DEFAULT 'free',      -- free | pro | ... (paid resource sharing later)
     quota      INTEGER DEFAULT 10000,    -- per-tenant row/storage quota hint
@@ -18,7 +20,7 @@ export const CREATE_STATEMENTS = [
   )`,
 
   `CREATE TABLE IF NOT EXISTS apps (
-    app_id       TEXT PRIMARY KEY,        -- e.g. "jiashiben"
+    app_id       TEXT PRIMARY KEY,        -- e.g. "weijiashi"
     name         TEXT,
     owner        TEXT,                    -- owning tenant_id or account
     auth_methods TEXT DEFAULT 'wechat',   -- comma-separated: wechat,password,oauth
@@ -231,8 +233,9 @@ export async function migrate(db) {
     await db.prepare(sql).run();
   }
   // Existing remote `tenants` tables predate the app_id column (the first app was
-  // hard-wired as "jiashiben"). Add the column idempotently and backfill NULLs so
-  // the two-dimensional (app_id + tenant_id) isolation works on live data.
+  // hard-wired as "jiashiben"，2026-09-05 起统一为 "weijiashi"). Add the column
+  // idempotently and backfill NULLs so the two-dimensional (app_id + tenant_id)
+  // isolation works on live data.
   await ensureTenantAppId(db);
   // 已上线的 admin_accounts 表可能缺少 recovery_hash（恢复码）列，幂等补齐。
   await ensureAdminRecoveryHash(db);
@@ -269,7 +272,7 @@ async function ensureTenantAppId(db) {
   const hasAppId = (cols.results || []).some((c) => c.name === 'app_id');
   if (!hasAppId) {
     await db
-      .prepare("ALTER TABLE tenants ADD COLUMN app_id TEXT DEFAULT 'jiashiben'")
+      .prepare("ALTER TABLE tenants ADD COLUMN app_id TEXT DEFAULT 'weijiashi'")
       .run();
   }
   await db
