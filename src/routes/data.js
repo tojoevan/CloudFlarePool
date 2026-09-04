@@ -19,6 +19,10 @@ import { rateLimit } from '../lib/ratelimit.js';
 
 const dataRoute = new Hono();
 
+// 安全注销宽限期：首次「申请注销」后须满此时长，DELETE /me 才放行。
+// 即「今天申请 → 明天再次确认才会真正删除」的宽限语义。
+const DELETION_GRACE_MS = 24 * 60 * 60 * 1000;
+
 // T3 service-token scope enforcement (closes the design §8 technical debt).
 // Only `typ=service` tokens carry an explicit scope; enforce at the HTTP-method
 // level so a leaked read-only key cannot mutate data:
@@ -788,7 +792,62 @@ dataRoute.get('/:tenant/me/export', async (c) => {
   });
 });
 
-// DELETE /t/:tenant/me —— 注销并删除本人全部数据（高危，前端须二次确认）
+// ---- 安全注销：两阶段（申请 → 24h 宽限 → 次日二次确认/可撤销）----
+// 状态落在独立表 account_deletion（静默登录无 users 行）。
+
+// POST /t/:tenant/me/deletion-request —— 第一阶段：申请注销，写入待注销行
+dataRoute.post('/:tenant/me/deletion-request', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const ow = ownerOf(c);
+  if (ow === 'anonymous') return c.json({ error: 'unauthorized' }, 401);
+  // 防滥用：同一 openid 每分钟最多 5 次（申请/撤销循环）
+  const rl = await rateLimit(c, `selfreq:${ow}`, { limit: 5, windowSec: 60 });
+  if (rl) return rl;
+
+  const nowMs = Date.now();
+  const scheduled = nowMs + DELETION_GRACE_MS;
+  await c.env.DB.prepare(
+    'INSERT OR REPLACE INTO account_deletion (tenant_id, openid, requested_at) VALUES (?, ?, ?)'
+  ).bind(tenant, ow, nowMs).run();
+  return c.json({ ok: true, requested_at: nowMs, scheduled_at: scheduled, grace_ms: DELETION_GRACE_MS });
+});
+
+// POST /t/:tenant/me/deletion-cancel —— 撤销注销申请（宽限期内可随时取消，数据保留）
+dataRoute.post('/:tenant/me/deletion-cancel', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const ow = ownerOf(c);
+  if (ow === 'anonymous') return c.json({ error: 'unauthorized' }, 401);
+  await c.env.DB.prepare(
+    'DELETE FROM account_deletion WHERE tenant_id = ? AND openid = ?'
+  ).bind(tenant, ow).run();
+  return c.json({ ok: true, cancelled: true });
+});
+
+// GET /t/:tenant/me/deletion-status —— 查询待注销状态（前端启动/进页时判断是否弹次日确认）
+dataRoute.get('/:tenant/me/deletion-status', async (c) => {
+  const tenant = await tenantOr404(c);
+  if (!tenant) return c.json({ error: 'tenant not found' }, 404);
+  const ow = ownerOf(c);
+  if (ow === 'anonymous') return c.json({ error: 'unauthorized' }, 401);
+  const row = await c.env.DB.prepare(
+    'SELECT requested_at FROM account_deletion WHERE tenant_id = ? AND openid = ?'
+  ).bind(tenant, ow).first();
+  if (!row || !row.requested_at) return c.json({ pending: false });
+  const nowMs = Date.now();
+  const scheduled = row.requested_at + DELETION_GRACE_MS;
+  const due = (nowMs - row.requested_at) >= DELETION_GRACE_MS;
+  return c.json({
+    pending: true,
+    requested_at: row.requested_at,
+    scheduled_at: scheduled,
+    due,
+    remaining_sec: due ? 0 : Math.max(0, Math.ceil((scheduled - nowMs) / 1000)),
+  });
+});
+
+// DELETE /t/:tenant/me —— 注销并删除本人全部数据（高危，须先申请且满宽限期）
 dataRoute.delete('/:tenant/me', async (c) => {
   const tenant = await tenantOr404(c);
   if (!tenant) return c.json({ error: 'tenant not found' }, 404);
@@ -798,6 +857,22 @@ dataRoute.delete('/:tenant/me', async (c) => {
   // 防误触/滥用：同一 openid 每分钟最多 3 次
   const rl = await rateLimit(c, `selfdel:${ow}`, { limit: 3, windowSec: 60 });
   if (rl) return rl;
+
+  // 安全注销闸门：必须先经「申请」且距申请 ≥ 24h 才允许硬删。
+  // 否则返回 409 + 剩余时间，杜绝误触或客户端直调导致的即时删除。
+  const pending = await c.env.DB.prepare(
+    'SELECT requested_at FROM account_deletion WHERE tenant_id = ? AND openid = ?'
+  ).bind(tenant, ow).first();
+  const nowMs = Date.now();
+  if (!pending || !pending.requested_at || (nowMs - pending.requested_at) < DELETION_GRACE_MS) {
+    const scheduled = pending && pending.requested_at ? pending.requested_at + DELETION_GRACE_MS : null;
+    const remainingSec = scheduled ? Math.max(0, Math.ceil((scheduled - nowMs) / 1000)) : null;
+    return c.json({ error: 'deletion not due', scheduled_at: scheduled, remaining_sec: remainingSec }, 409);
+  }
+  // 闸门通过：先撤掉待注销行，避免重复执行
+  await c.env.DB.prepare(
+    'DELETE FROM account_deletion WHERE tenant_id = ? AND openid = ?'
+  ).bind(tenant, ow).run();
 
   const detail = { tenant, steps: [] };
 

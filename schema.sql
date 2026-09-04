@@ -141,3 +141,13 @@ CREATE TABLE IF NOT EXISTS family_invites (
   used_at       INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_fam_invites_family ON family_invites(family_id);
+
+-- ===== 安全注销宽限期（申请 → 24h → 次日二次确认/可撤销）=====
+-- 静默登录无 users 行，用独立表承载待注销状态；requested_at 为申请时刻(epoch ms)。
+-- DELETE /me 仅在该行存在且距今 ≥ 24h 才放行硬删。
+CREATE TABLE IF NOT EXISTS account_deletion (
+  tenant_id    TEXT NOT NULL,
+  openid       TEXT NOT NULL,
+  requested_at INTEGER NOT NULL,
+  PRIMARY KEY (tenant_id, openid)
+);

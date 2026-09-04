@@ -8,6 +8,16 @@
 // collections/api_keys/admin_* 共 77 行已迁移，备份见 .archive/d1-backups）。
 export const DEFAULT_APP_ID = 'weijiashi';
 
+// 账号注销宽限期状态表（微家事 安全注销：申请 → 24h → 次日二次确认/可撤销）。
+// 微家事走静默登录，users 表常无行，故用独立表承载待注销状态。
+// requested_at 为申请时刻（epoch ms）；DELETE /me 仅在该行存在且距今 ≥ DELETION_GRACE_MS 才放行。
+export const ACCOUNT_DELETION_DDL = `CREATE TABLE IF NOT EXISTS account_deletion (
+  tenant_id    TEXT NOT NULL,
+  openid       TEXT NOT NULL,
+  requested_at INTEGER NOT NULL,
+  PRIMARY KEY (tenant_id, openid)
+)`;
+
 export const CREATE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS tenants (
     tenant_id  TEXT PRIMARY KEY,          -- e.g. "weijiashi"
@@ -224,6 +234,8 @@ export const CREATE_STATEMENTS = [
     count        INTEGER,
     PRIMARY KEY (bucket_key, window_start)
   )`,
+
+  ACCOUNT_DELETION_DDL,
 ];
 
 // Run all CREATE statements. Called from the dev `/__setup` endpoint
@@ -241,6 +253,14 @@ export async function migrate(db) {
   await ensureAdminRecoveryHash(db);
   // 家庭共享项需要 co_edit 协作编辑开关列，幂等补齐（微家事 0.1.7）。
   await ensureCoEdit(db);
+  // 账号注销宽限期状态表：幂等建表（静默登录无 users 行，独立承载待注销状态）。
+  await ensureAccountDeletion(db);
+}
+
+// Idempotent: create the `account_deletion` grace-period table if missing
+// (used by the two-phase safe account deletion flow).
+async function ensureAccountDeletion(db) {
+  await db.prepare(ACCOUNT_DELETION_DDL).run();
 }
 
 // Idempotent: add `co_edit` to already-existing `todos` / `archive_items` tables
