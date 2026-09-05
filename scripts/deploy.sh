@@ -20,6 +20,9 @@ echo "[deploy] CLOUDFLARE_API_TOKEN set: $([ -n "${CLOUDFLARE_API_TOKEN:-}" ] &&
 
 cd "$REPO_DIR" || { echo "[deploy] ERROR: cannot cd $REPO_DIR"; exit 1; }
 
+# 还原上次部署被 sed 改动的 wrangler.toml，避免工作区 dirty 导致后续 git pull 失败
+git checkout -- wrangler.toml 2>/dev/null || true
+
 echo "[deploy] git pull origin main..."
 git pull --ff-only origin main
 HEAD=$(git rev-parse --short HEAD)
@@ -54,9 +57,12 @@ else
   echo "[deploy] package-lock.json unchanged & node_modules present -> skip npm ci (fast path)"
 fi
 
-# 部署数据湖（带上 GIT_HEAD，便于后台核对部署版本）
+# 部署数据湖。⚠️ 必须先改 wrangler.toml 的 GIT_HEAD 再裸 wrangler deploy：
+# wrangler 4.120 下 --var GIT_HEAD 无法覆盖 toml 同名 [vars]，运行时 env 仍取兜底旧值，
+# 会致 health.git 显示旧 sha、与 version.json(HEAD) 不一致（详见部署方案第八节第 5 条）。
+sed -i.bak -E "s/^GIT_HEAD = \".*\"/GIT_HEAD = \"$HEAD\"/" wrangler.toml && rm -f wrangler.toml.bak
 echo "[deploy] wrangler deploy datalake (GIT_HEAD=$HEAD)..."
-wrangler deploy --var GIT_HEAD:"$HEAD"
+wrangler deploy
 echo "[deploy] datalake deployed"
 
 # 同步静态 SPA（免重启）
