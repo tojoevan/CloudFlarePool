@@ -5,7 +5,7 @@
 #   3. 用令牌触发部署并轮询日志；
 #   4. 若部署返回 401（被运维吊销）→ 清空缓存、重新申请一次。
 # 用法：bash scripts/agent-deploy.sh "部署说明：修复 xx 路由" [--timeout 300]
-set -uo pipefail
+set -o pipefail
 
 PURPOSE="Agent 自助部署请求"
 TIMEOUT=300
