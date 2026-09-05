@@ -15,6 +15,12 @@ WEB_ROOT="${DEPLOY_WEB_ROOT:-/www/wwwroot/home.inkspcl.com}"
 # 部署用 SSH 只读密钥（中立路径，网关无论以 root/www 运行均可读取，git pull 不依赖 ~/.ssh）
 export GIT_SSH_COMMAND="ssh -i /opt/cloudflarepool-deploy/id_ed25519 -o StrictHostKeyChecking=no"
 
+# 网关进程（www）继承了启动者 root 的 HOME=/root（700，www 不可进入），
+# 而 wrangler/npm 会把日志·缓存写到 $HOME 下，导致 EACCES 部署失败。
+# 这里把 HOME 重定向到 www 专属可写目录（建表时已 chown www:www），兜底 /tmp。
+export HOME="/www/.cloudflare-home"
+mkdir -p "$HOME" 2>/dev/null || export HOME="/tmp"
+
 echo "[deploy] REPO_DIR=$REPO_DIR  WEB_ROOT=$WEB_ROOT"
 echo "[deploy] CLOUDFLARE_API_TOKEN set: $([ -n "${CLOUDFLARE_API_TOKEN:-}" ] && echo yes || echo NO)"
 
