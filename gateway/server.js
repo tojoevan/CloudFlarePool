@@ -79,9 +79,10 @@ const deployRate = new Map();
 // ---- Agent 自助部署通道（申请 / 审批 / 吊销 模型）----
 // 设计：Agent 先 POST /api/agent/token/request {purpose} 申请临时令牌（pending），
 // 运维在管理后台「部署授权」面板审批 → 网关生成令牌并激活；Agent 轮询
-// GET /api/agent/token/request/:id 取用；运维可随时在面板「吊销」收回权限（401）。
-// 令牌为单活跃态（同一时刻仅一个有效），存于 AGENT_DEPLOY_TOKEN / _EXPIRES_AT
-// （审批时写入并持久化 .env，重启后仍有效，直到被吊销；verifyAgentDeploy 动态读取）。
+// GET /api/agent/token/request/:id 取用；运维可随时在面板按 requestId「吊销」指定令牌（401）。
+// 令牌为多活跃态（同一时刻可存在多个有效令牌，供多个 Agent 同时使用），集合存于 .env 的
+// AGENT_DEPLOY_TOKENS（JSON 数组，重启后仍有效）；verifyAgentDeploy 遍历所有 approved 且未过期的
+// 申请记录校验，吊销仅移除指定 requestId 对应的令牌，不影响其他。
 
 // 申请记录：requestId -> { id, purpose, requestedTtlHours, status, createdAt, decidedAt, decidedBy, token, expiresAtMs }
 const agentTokenRequests = new Map();
@@ -89,25 +90,23 @@ const agentTokenRequests = new Map();
 function verifyAgentDeploy(req) {
   const token = bearerFrom(req);
   if (!token) return { ok: false, status: 401, error: 'unauthorized: missing agent bearer' };
-  // 动态读取活跃令牌（审批/吊销会改写 process.env，不能用加载时的 const 快照）
-  const activeToken = process.env.AGENT_DEPLOY_TOKEN || '';
-  const activeExpiresAt = process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT
-    ? Date.parse(process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT)
-    : 0;
-  if (!activeToken) return { ok: false, status: 503, error: 'agent deploy not authorized (no active token; ask operator to approve a request)' };
-  const a = Buffer.from(token);
-  const b = Buffer.from(activeToken);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    return { ok: false, status: 403, error: 'forbidden: invalid agent token (may be revoked)' };
+  const now = Date.now();
+  let hasActive = false, expired = false;
+  for (const rec of agentTokenRequests.values()) {
+    if (rec.status !== 'approved' || !rec.token) continue;
+    if (!rec.expiresAtMs || now > rec.expiresAtMs) { expired = true; continue; }
+    hasActive = true;
+    const a = Buffer.from(token);
+    const b = Buffer.from(rec.token);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return { ok: true };
   }
-  if (!activeExpiresAt || Date.now() > activeExpiresAt) {
-    return { ok: false, status: 401, error: 'agent token expired, ask operator to approve a new request' };
-  }
-  return { ok: true };
+  if (!hasActive) return { ok: false, status: 503, error: 'agent deploy not authorized (no active token; ask operator to approve a request)' };
+  if (expired) return { ok: false, status: 401, error: 'agent token expired, ask operator to approve a new request' };
+  return { ok: false, status: 403, error: 'forbidden: invalid agent token (may be revoked)' };
 }
 
-// 将 Agent 部署令牌持久化回网关 .env（运行时已同步更新 process.env，重启后仍有效）。
-async function persistAgentToken(token, expiresAtISO) {
+// 将当前所有活跃 Agent 令牌持久化回网关 .env（多令牌集合，重启后仍有效）。
+async function persistAgentTokens() {
   const envPath = join(__dirname, '.env');
   let text = '';
   try { text = await readFile(envPath, 'utf8'); } catch { text = ''; }
@@ -121,23 +120,51 @@ async function persistAgentToken(token, expiresAtISO) {
     }
     text = found ? lines.join('\n') : `${text}${text.endsWith('\n') ? '' : '\n'}${key}=${val}\n`;
   };
-  set('AGENT_DEPLOY_TOKEN', token);
-  set('AGENT_DEPLOY_TOKEN_EXPIRES_AT', expiresAtISO);
+  const now = Date.now();
+  const active = [...agentTokenRequests.values()]
+    .filter((r) => r.status === 'approved' && r.token && r.expiresAtMs && now < r.expiresAtMs)
+    .map((r) => ({ requestId: r.id, token: r.token, expiresAtMs: r.expiresAtMs }));
+  set('AGENT_DEPLOY_TOKENS', JSON.stringify(active));
+  set('AGENT_DEPLOY_TOKEN', '');            // 旧单值字段已废弃，置空
+  set('AGENT_DEPLOY_TOKEN_EXPIRES_AT', '');
   await writeFile(envPath, text, { mode: 0o600 });
 }
 
-// 审批时激活令牌：写入 process.env + 持久化 .env。
-async function setActiveAgentToken(token, expiresAtISO) {
-  process.env.AGENT_DEPLOY_TOKEN = token;
-  process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT = expiresAtISO;
-  await persistAgentToken(token, expiresAtISO);
+// 启动时从 .env 恢复活跃令牌集合（多令牌）；兼容旧版单值 AGENT_DEPLOY_TOKEN。
+async function loadAgentTokensFromEnv() {
+  const envPath = join(__dirname, '.env');
+  let text = '';
+  try { text = await readFile(envPath, 'utf8'); } catch { return; }
+  const get = (key) => {
+    for (const line of text.split('\n')) {
+      const eq = line.indexOf('=');
+      if (eq === -1) continue;
+      if (line.slice(0, eq).trim() === key) return line.slice(eq + 1).trim();
+    }
+    return '';
+  };
+  let arr = [];
+  const raw = get('AGENT_DEPLOY_TOKENS');
+  if (raw) { try { arr = JSON.parse(raw); } catch { arr = []; } }
+  if (!Array.isArray(arr) || !arr.length) {
+    const legacy = get('AGENT_DEPLOY_TOKEN');
+    const legacyExp = get('AGENT_DEPLOY_TOKEN_EXPIRES_AT') ? Date.parse(get('AGENT_DEPLOY_TOKEN_EXPIRES_AT')) : 0;
+    if (legacy && legacyExp > Date.now()) arr = [{ requestId: 'legacy', token: legacy, expiresAtMs: legacyExp }];
+  }
+  if (!Array.isArray(arr)) return;
+  const now = Date.now();
+  for (const t of arr) {
+    if (!t || !t.token || !t.expiresAtMs || now > t.expiresAtMs) continue;
+    const id = String(t.requestId || ('areq_' + crypto.randomBytes(6).toString('hex')));
+    if (agentTokenRequests.has(id)) continue;
+    agentTokenRequests.set(id, {
+      id, purpose: '(重启恢复)', requestedTtlHours: Math.max(1, Math.round((t.expiresAtMs - now) / 3600000)),
+      status: 'approved', createdAt: now, decidedAt: now, decidedBy: 'system',
+      token: t.token, expiresAtMs: t.expiresAtMs,
+    });
+  }
 }
-// 吊销：清空活跃令牌（process.env + .env），Agent 后续调用即 401（收回权限）。
-async function clearActiveAgentToken() {
-  process.env.AGENT_DEPLOY_TOKEN = '';
-  process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT = '';
-  await persistAgentToken('', '');
-}
+loadAgentTokensFromEnv().catch((e) => console.error('[agent-token] load from env failed:', e && e.message));
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -780,6 +807,8 @@ const server = http.createServer(async (req, res) => {
 
       // 列出申请（pending 优先，其次最近已决）
       if (req.method === 'GET' && path === '/api/t4data/agent-token/requests') {
+        const now = Date.now();
+        const activeExists = [...agentTokenRequests.values()].some((r) => r.status === 'approved' && r.token && r.expiresAtMs && now < r.expiresAtMs);
         const list = [...agentTokenRequests.values()]
           .sort((a, b) => ((a.status === 'pending' ? -1 : 1) - (b.status === 'pending' ? -1 : 1)) || b.createdAt - a.createdAt)
           .slice(0, 50)
@@ -787,13 +816,13 @@ const server = http.createServer(async (req, res) => {
             requestId: r.id, purpose: r.purpose, requestedTtlHours: r.requestedTtlHours,
             status: r.status, createdAt: r.createdAt, decidedAt: r.decidedAt, decidedBy: r.decidedBy,
             expiresAtMs: r.expiresAtMs,
-            active: !!(r.token && r.token === process.env.AGENT_DEPLOY_TOKEN && r.expiresAtMs && Date.now() < r.expiresAtMs),
+            active: !!(r.status === 'approved' && r.token && r.expiresAtMs && now < r.expiresAtMs),
           }));
-        sendJson(res, 200, { requests: list, activeExists: !!process.env.AGENT_DEPLOY_TOKEN });
+        sendJson(res, 200, { requests: list, activeExists });
         return;
       }
 
-      // 审批：生成并激活临时令牌
+      // 审批：生成并激活临时令牌（加入活跃集合，不影响其他已存在令牌）
       if (req.method === 'POST' && path === '/api/t4data/agent-token/approve') {
         let body = {};
         try { body = await readJson(req); } catch { body = {}; }
@@ -806,12 +835,12 @@ const server = http.createServer(async (req, res) => {
         const expiresAtISO = new Date(expiresAtMs).toISOString();
         rec.token = newToken; rec.expiresAtMs = expiresAtMs; rec.status = 'approved';
         rec.decidedAt = Date.now(); rec.decidedBy = sub;
-        try { await setActiveAgentToken(newToken, expiresAtISO); }
+        try { await persistAgentTokens(); }
         catch (e) { sendJson(res, 500, { error: 'failed to activate token', detail: e.message }); return; }
         console.log(`[agent-token] approved ${rec.id} by ${sub} ttl=${ttlHours}h`);
         sendJson(res, 200, {
           requestId: rec.id, status: 'approved', token: newToken, expiresAt: expiresAtISO, expiresAtMs, ttlHours,
-          note: '令牌已激活，Agent 轮询后将自动取用；可随时在面板「吊销」收回权限。',
+          note: '令牌已激活，Agent 轮询后将自动取用；可随时在面板按 requestId「吊销」精确回收。',
         });
         return;
       }
@@ -829,19 +858,29 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      // 吊销当前活跃令牌（收回权限）。可指定 requestId，否则吊销当前活跃令牌。
+      // 吊销：按 requestId 精确回收指定令牌（不影响其他活跃令牌）；不传 requestId 则吊销全部。
       if (req.method === 'POST' && path === '/api/t4data/agent-token/revoke') {
         let body = {};
         try { body = await readJson(req); } catch { body = {}; }
         const rid = String(body.requestId || '');
-        if (rid && agentTokenRequests.has(rid)) {
+        if (rid) {
           const rec = agentTokenRequests.get(rid);
+          if (!rec) { sendJson(res, 404, { error: 'request not found' }); return; }
           rec.status = 'revoked'; rec.decidedAt = Date.now(); rec.decidedBy = sub; rec.token = null;
+          console.log(`[agent-token] revoked by ${sub} request=${rid}`);
+          try { await persistAgentTokens(); }
+          catch (e) { sendJson(res, 500, { error: 'failed to revoke token', detail: e.message }); return; }
+          sendJson(res, 200, { status: 'revoked', requestId: rid, note: '该令牌已吊销，不影响其他活跃令牌。' });
+          return;
         }
-        try { await clearActiveAgentToken(); }
+        // 未指定 requestId：吊销全部活跃令牌
+        for (const rec of agentTokenRequests.values()) {
+          if (rec.status === 'approved' && rec.token) { rec.status = 'revoked'; rec.token = null; rec.decidedAt = Date.now(); rec.decidedBy = sub; }
+        }
+        console.log(`[agent-token] revoked ALL by ${sub}`);
+        try { await persistAgentTokens(); }
         catch (e) { sendJson(res, 500, { error: 'failed to revoke token', detail: e.message }); return; }
-        console.log(`[agent-token] revoked by ${sub}${rid ? ' request=' + rid : ' (active)'}`);
-        sendJson(res, 200, { status: 'revoked', note: '活跃令牌已吊销，Agent 后续部署将 401。' });
+        sendJson(res, 200, { status: 'revoked', note: '全部活跃令牌已吊销。' });
         return;
       }
 

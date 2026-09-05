@@ -1,329 +1,329 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<html lang="zh-CN" data-page-node-id="XCcBh1w2f84w89J723k9eX">
+<head data-page-node-id="54NHp4AhADWqikhzGHTU9i">
+  <meta charset="utf-8" data-page-node-id="dMebtANOibPlspjPGGAoOa" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" data-page-node-id="OOAlWegmHmBtRgpmAGFchT" />
   <title>微家事 · 管理后台</title>
-  <link rel="icon" type="image/png" href="/admin/favicon.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/admin/apple-touch-icon.png" />
-  <link rel="stylesheet" href="/admin/style.css" />
+  <link rel="icon" type="image/png" href="/admin/favicon.png" data-page-node-id="4Bs2PSNAovwDz4TdYI1G5C" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/admin/apple-touch-icon.png" data-page-node-id="Qad7ACFGYlhqM3mmdPaoUZ" />
+  <link rel="stylesheet" href="/admin/style.css" data-page-node-id="HRMVRxa1WOdAz8xPHGle06" />
 </head>
-<body>
-  <div id="app">
+<body data-page-node-id="EaiR6c3CDD8ciBZUY2lQkl">
+  <div id="app" data-page-node-id="TIrpzllCSBEL6amt8GMDZ2">
     <!-- 登录 -->
-    <section id="login" class="card">
-      <h1>微家事</h1>
-      <p class="sub">管理后台登录</p>
-      <form id="login-form">
-        <input id="email" type="email" placeholder="管理员邮箱" autocomplete="username" required />
-        <input id="password" type="password" placeholder="密码" autocomplete="current-password" required />
-        <button type="submit" id="login-btn">登录</button>
-        <p id="login-err" class="err"></p>
+    <section id="login" class="card" data-page-node-id="94vGTOYep6wkKwCOpyGsRi">
+      <h1 data-page-node-id="8EismHnPFqtuAFnH0pCToM">微家事</h1>
+      <p class="sub" data-page-node-id="CT4rrmK1eSP0Ne61kGMtZp">管理后台登录</p>
+      <form id="login-form" data-page-node-id="kRVFTZ0ZIcHDNeaoFluJfP">
+        <input id="email" type="email" placeholder="管理员邮箱" autocomplete="username" required data-page-node-id="0ywdYpDQ17IfsGVKnOBVhA" />
+        <input id="password" type="password" placeholder="密码" autocomplete="current-password" required data-page-node-id="eNwCjBVlUEjW8CIVlCzSVJ" />
+        <button type="submit" id="login-btn" data-page-node-id="l7mTw2Cm81FBCHXzdM8uEw">登录</button>
+        <p id="login-err" class="err" data-page-node-id="ZHVft9ibwVIEiF9CaYSla0"></p>
       </form>
-      <p id="login-forgot" class="link">忘记密码？</p>
-      <form id="forgot-form" class="hidden">
-        <input id="f-email" type="email" placeholder="管理员邮箱" autocomplete="username" required />
-        <input id="f-code" type="text" placeholder="账户恢复码" required />
-        <input id="f-pw" type="password" placeholder="新密码（≥8 位）" autocomplete="new-password" required />
-        <input id="f-pw2" type="password" placeholder="确认新密码" autocomplete="new-password" required />
-        <button type="submit" id="forgot-btn">重置密码</button>
-        <p id="forgot-err" class="err"></p>
-        <p id="forgot-back" class="link">返回登录</p>
+      <p id="login-forgot" class="link" data-page-node-id="8pD6xxEIkc7kXkJJeYRdJT">忘记密码？</p>
+      <form id="forgot-form" class="hidden" data-page-node-id="ZKbAauz04iWk3nKAMWwII4">
+        <input id="f-email" type="email" placeholder="管理员邮箱" autocomplete="username" required data-page-node-id="TBzmDT0b5NQUoYOH4CJ4lr" />
+        <input id="f-code" type="text" placeholder="账户恢复码" required data-page-node-id="IIxo7rScHglcsfqLeSN23Y" />
+        <input id="f-pw" type="password" placeholder="新密码（≥8 位）" autocomplete="new-password" required data-page-node-id="0ijjcpN5jdIy6vCSnVF9Ha" />
+        <input id="f-pw2" type="password" placeholder="确认新密码" autocomplete="new-password" required data-page-node-id="FomKWJIdpIokUOkBON2UNd" />
+        <button type="submit" id="forgot-btn" data-page-node-id="jpM92WsIzliOYFEcOHy5Fc">重置密码</button>
+        <p id="forgot-err" class="err" data-page-node-id="6V0UvLNbVvFD52oGtz7Joq"></p>
+        <p id="forgot-back" class="link" data-page-node-id="Wp8aTKyhvK3tV7aha3rUgm">返回登录</p>
       </form>
     </section>
 
     <!-- 主界面 -->
-    <section id="main" class="card hidden">
-      <header class="topbar">
-        <div>
-          <h1>管理后台</h1>
-          <p class="sub" id="who"></p>
+    <section id="main" class="card hidden" data-page-node-id="jVwlIh8sONczz4C33UFypr">
+      <header class="topbar" data-page-node-id="SHgqNzcPKc0bUODTpm0fKF">
+        <div data-page-node-id="4HjZMpKYPUdajyoBIAsuzT">
+          <h1 data-page-node-id="0qdmG1BWqm2peRPMwuI9A2">管理后台</h1>
+          <p class="sub" id="who" data-page-node-id="iMczdr9IoJ4zVXNZlznbNU"></p>
         </div>
-        <button id="logout" class="ghost">退出</button>
+        <button id="logout" class="ghost" data-page-node-id="smrRwXuYKJ6PkipEyVH2Fc">退出</button>
       </header>
 
-      <nav class="tabs" id="tabs">
-        <button class="tab active" data-tab="overview">概览</button>
-        <button class="tab" data-tab="data">数据</button>
-        <button class="tab" data-tab="profiles">用户与家庭</button>
-        <button class="tab" data-tab="users">用户账号</button>
-        <button class="tab" data-tab="keys">服务密钥</button>
-        <button class="tab" data-tab="security">安全</button>
-        <button class="tab hidden" data-tab="admins" id="tab-admins">管理员</button>
-        <button class="tab" data-tab="audit">审计</button>
-        <button class="tab" data-tab="deployauth">部署授权</button>
+      <nav class="tabs" id="tabs" data-page-node-id="beJl1mXwPTmXi1o6LnN1DB">
+        <button class="tab active" data-tab="overview" data-page-node-id="JzkLt030zdpOHoKCaj9orv">概览</button>
+        <button class="tab" data-tab="data" data-page-node-id="UqaLwTbTglj4GU8kMUmF1k">数据</button>
+        <button class="tab" data-tab="profiles" data-page-node-id="LCKGIW6qSD1sdd6DPfSgjI">用户与家庭</button>
+        <button class="tab" data-tab="users" data-page-node-id="MJE7k5W6fe1Tn831s8dnRF">用户账号</button>
+        <button class="tab" data-tab="keys" data-page-node-id="vfnjgVUxV0fxlH1poORd1w">服务密钥</button>
+        <button class="tab" data-tab="security" data-page-node-id="MejAkjpLGdMvpCcZIeU56y">安全</button>
+        <button class="tab hidden" data-tab="admins" id="tab-admins" data-page-node-id="gRtJlc7jCe0tLHB9hCIiWC">管理员</button>
+        <button class="tab" data-tab="audit" data-page-node-id="zSxiIbE1QGDOiQtF0UIJ6Y">审计</button>
+        <button class="tab" data-tab="deployauth" data-page-node-id="Ixliu6uRRssSl1e553kW5G">部署授权</button>
       </nav>
 
       <!-- 概览 -->
-      <div class="panel" id="panel-overview">
-        <div id="tenant" class="tenant hidden"></div>
-        <div class="versions" id="versions">
-          <div class="v-title">版本矩阵</div>
-          <div class="v-grid">
-            <div class="v-cell"><span>小程序</span><b id="ver-mp">-</b></div>
-            <div class="v-cell"><span>网关</span><b id="ver-gw2">-</b></div>
-            <div class="v-cell"><span>数据湖</span><b id="ver-dl2">-</b></div>
-            <div class="v-cell"><span>前端 SPA</span><b id="ver-sp2">v0.0.3</b></div>
+      <div class="panel" id="panel-overview" data-page-node-id="gqRFaLaVJjOSFvoMh1Fixz">
+        <div id="tenant" class="tenant hidden" data-page-node-id="ZIglI9wJWqqDPtuHBqi1ve"></div>
+        <div class="versions" id="versions" data-page-node-id="M6gH4IInFisQCDusNFHSG3">
+          <div class="v-title" data-page-node-id="tkqYJCyHgncHsgZqpKnlKc">版本矩阵</div>
+          <div class="v-grid" data-page-node-id="HqGdTYgtWL1ocLUHh6xj6o">
+            <div class="v-cell" data-page-node-id="0GExLBLAKKgX7FhlgACNeT"><span data-page-node-id="19WMj7IUymyBrYWBpCJagg">小程序</span><b id="ver-mp" data-page-node-id="e3S6bJLIR3iRCq77UO3F4A">-</b></div>
+            <div class="v-cell" data-page-node-id="ztZTVPn5zSiYXsympwk7uE"><span data-page-node-id="ABveUNKOba9l6MSBiB8oiZ">网关</span><b id="ver-gw2" data-page-node-id="EQTJeUKqdHvlazJJC3CaTv">-</b></div>
+            <div class="v-cell" data-page-node-id="F5VdZ222pCK5A1vHOBAN1E"><span data-page-node-id="G8oGgFzYCsGdydwFlX2YHp">数据湖</span><b id="ver-dl2" data-page-node-id="JNoEvHFX66zHkaXmtGdW0b">-</b></div>
+            <div class="v-cell" data-page-node-id="7MBrGbVneDvRfE1SRamkgP"><span data-page-node-id="9BktuMKJWuYQwvkun4lvQ2">前端 SPA</span><b id="ver-sp2" data-page-node-id="jsQmxlFITHd8uKf6TTahP4">v0.0.3</b></div>
           </div>
         </div>
-        <div id="cards" class="cards"></div>
-        <p class="foot">只读看板 · 数据湖实时统计</p>
+        <div id="cards" class="cards" data-page-node-id="VvCdYBdOb7C3dhSP8JkoQL"></div>
+        <p class="foot" data-page-node-id="2mxxoMEXAiWPFP63piFsjU">只读看板 · 数据湖实时统计</p>
       </div>
 
       <!-- 数据浏览器 -->
-      <div class="panel hidden" id="panel-data">
-        <div class="panel-head">
-          <h2>数据浏览器</h2>
-          <div class="toolbar">
-            <select id="data-table">
-              <option value="todos">待办 todos</option>
-              <option value="archive_items">归档 archive_items</option>
-              <option value="collections">通用集合 collections</option>
-              <option value="tasks_doc">任务文档 tasks_doc（只读）</option>
-              <option value="families">家庭 families（只读）</option>
-              <option value="family_members">家庭成员 family_members（只读）</option>
-              <option value="family_invites">家庭邀请 family_invites（只读）</option>
+      <div class="panel hidden" id="panel-data" data-page-node-id="9x8Aeyj0YD5TRLVGJdQIny">
+        <div class="panel-head" data-page-node-id="aQfhhQMMghXt3S20L5ZiL8">
+          <h2 data-page-node-id="9kPhgNrWpnZ4fnlvbXcjEZ">数据浏览器</h2>
+          <div class="toolbar" data-page-node-id="C541xpaeG8YJkRJgAbZXLO">
+            <select id="data-table" data-page-node-id="ACGMv7lVWaY569QbwtP8ol">
+              <option value="todos" data-page-node-id="sgKusKq5NXTEiFLblVUqNj">待办 todos</option>
+              <option value="archive_items" data-page-node-id="BFX0JXfatYLOjTdFRdJ2Ju">归档 archive_items</option>
+              <option value="collections" data-page-node-id="KuRhjTpg9Dz0Hbn3OaRWmG">通用集合 collections</option>
+              <option value="tasks_doc" data-page-node-id="v42SURAjKm9LpvRhD7nUzA">任务文档 tasks_doc（只读）</option>
+              <option value="families" data-page-node-id="aqMofzdclGYD7uA24S05rC">家庭 families（只读）</option>
+              <option value="family_members" data-page-node-id="M4NEXzJCFzBa1A8MhqAcq9">家庭成员 family_members（只读）</option>
+              <option value="family_invites" data-page-node-id="wn7sJkEMa4BlLFTY3sRx1N">家庭邀请 family_invites（只读）</option>
             </select>
-            <select id="data-tenant" class="hidden">
-              <option value="">全部租户</option>
+            <select id="data-tenant" class="hidden" data-page-node-id="UjykQLZ0t6QKHGH9juK5ZO">
+              <option value="" data-page-node-id="rKJWI7r80ITSplbpMVSVmV">全部租户</option>
             </select>
-            <input id="data-q" type="text" placeholder="搜索（标题 / 类型 / 集合）" />
-            <input id="data-owner" type="text" placeholder="按 openid 筛选" />
-            <button class="ghost sm" id="data-search">查询</button>
-            <button class="ghost sm" id="data-refresh">刷新</button>
-            <button class="ghost sm" id="data-export-csv">导出 CSV</button>
-            <button class="ghost sm" id="data-export-json">导出 JSON</button>
+            <input id="data-q" type="text" placeholder="搜索（标题 / 类型 / 集合）" data-page-node-id="FGbDQ0PouX2tTESZDeB119" />
+            <input id="data-owner" type="text" placeholder="按 openid 筛选" data-page-node-id="qLCBP7l51ExG4IyfjTySa9" />
+            <button class="ghost sm" id="data-search" data-page-node-id="N5eFGytyOKcMBzFSHswBYR">查询</button>
+            <button class="ghost sm" id="data-refresh" data-page-node-id="JMnDVp7CPELRGdy9gsmeNj">刷新</button>
+            <button class="ghost sm" id="data-export-csv" data-page-node-id="GoNbvGL8m5SDrLDDrBdgsO">导出 CSV</button>
+            <button class="ghost sm" id="data-export-json" data-page-node-id="XRPS9lE7mFbRGNNe7HXtGX">导出 JSON</button>
           </div>
         </div>
-        <div class="table-wrap">
-          <table class="tbl">
-            <thead id="data-head"></thead>
-            <tbody id="data-body"><tr><td class="empty">加载中…</td></tr></tbody>
+        <div class="table-wrap" data-page-node-id="dHf8QPX2MXLGeAKO1RgQBS">
+          <table class="tbl" data-page-node-id="a3H1fyatIWykacJz8v5V5Q">
+            <thead id="data-head" data-page-node-id="auqO1hdUR89tPkDh8Acy4I"></thead>
+            <tbody id="data-body" data-page-node-id="uJuhMSBE7QPEfb56XifKwh"><tr data-page-node-id="P64az2mYxbUNDGaCeiY159"><td class="empty" data-page-node-id="H3LbrSUB8ovm9ysRL13Y1t">加载中…</td></tr></tbody>
           </table>
         </div>
-        <div class="pager" id="data-pager"></div>
-        <p class="foot" id="data-meta"></p>
+        <div class="pager" id="data-pager" data-page-node-id="9lToUjzbLT7SGPN2w56Z2y"></div>
+        <p class="foot" id="data-meta" data-page-node-id="ElbtgXopclcTPqSejy5TdX"></p>
       </div>
 
       <!-- 用户与家庭（openid 画像） -->
-      <div class="panel hidden" id="panel-profiles">
-        <div id="profiles-list">
-          <div class="panel-head">
-            <h2>用户与家庭</h2>
-            <div class="toolbar">
-              <input id="profiles-q" type="text" placeholder="搜索 openid（支持子串）" />
-              <button class="ghost sm" id="profiles-search">查询</button>
-              <button class="ghost sm" id="profiles-refresh">刷新</button>
+      <div class="panel hidden" id="panel-profiles" data-page-node-id="HdTMF6XsygOWoQ0SQ4Vhhn">
+        <div id="profiles-list" data-page-node-id="YsS6M7vio4tZcQ9WWRbjyV">
+          <div class="panel-head" data-page-node-id="CR5NUVfBEnlVrkpluu9CDZ">
+            <h2 data-page-node-id="QxyTfiz35zFsen7pKGe8Jt">用户与家庭</h2>
+            <div class="toolbar" data-page-node-id="s3tyqL7nzUCwkCWyOT6EX0">
+              <input id="profiles-q" type="text" placeholder="搜索 openid（支持子串）" data-page-node-id="8UQaLSAXktWY6pULMe0Agn" />
+              <button class="ghost sm" id="profiles-search" data-page-node-id="QNHthqtZ8zI3GYmki7CVxo">查询</button>
+              <button class="ghost sm" id="profiles-refresh" data-page-node-id="zBH8IerwaPrpeKFvNu91ko">刷新</button>
             </div>
           </div>
-          <p class="explain">小程序用户以 <code>openid</code> 为身份（无邮箱账号）。本页聚合待办 / 归档 / 集合 / 家庭四类业务数据，用于按用户排障。点击「详情」查看该用户全部数据与家庭关系。</p>
-          <div class="table-wrap">
-            <table class="tbl">
-              <thead><tr><th>用户（openid）</th><th>昵称</th><th>待办</th><th>归档</th><th>集合</th><th>家庭</th><th>最近活跃</th><th>操作</th></tr></thead>
-              <tbody id="profiles-body"><tr><td colspan="8" class="empty">加载中…</td></tr></tbody>
+          <p class="explain" data-page-node-id="rKW1DXhAshI8Amf7uC24Rc">小程序用户以 <code data-page-node-id="T46X1teCt8tQRUtqX9xFJO">openid</code> 为身份（无邮箱账号）。本页聚合待办 / 归档 / 集合 / 家庭四类业务数据，用于按用户排障。点击「详情」查看该用户全部数据与家庭关系。</p>
+          <div class="table-wrap" data-page-node-id="dlKGZV0oQMQ18Lt21RSFsP">
+            <table class="tbl" data-page-node-id="zMsrW2zqmiD8LwyYqg0Yau">
+              <thead data-page-node-id="3K5vD6yFjtmGbkLAdW29rq"><tr data-page-node-id="04it7t5vIKJZyprIYClEdW"><th data-page-node-id="BhDQxyGhD4Nx5S2MYdcLJO">用户（openid）</th><th data-page-node-id="odrT8rUBrVaEVvhXEr8emk">昵称</th><th data-page-node-id="uxmz7hCqXLd7gZhHUs0nRj">待办</th><th data-page-node-id="oYNTpewCDCQ7wgcJkP9Alc">归档</th><th data-page-node-id="8Sh6M30fPFOYmrciTbUPZZ">集合</th><th data-page-node-id="EdCJJA3Z98rBOwAWDPTXzB">家庭</th><th data-page-node-id="DGEWjXdlBpT2E9OEeMFOXs">最近活跃</th><th data-page-node-id="A8iGDrtvmIsklaBGSNYzxD">操作</th></tr></thead>
+              <tbody id="profiles-body" data-page-node-id="B8wHh1KlmHIalTDsH4zev2"><tr data-page-node-id="YDDz4i7k0MMwMvHcSBb9RC"><td colspan="8" class="empty" data-page-node-id="AgdD94WltTZAxgEqkF5R3T">加载中…</td></tr></tbody>
             </table>
           </div>
-          <div class="pager" id="profiles-pager"></div>
-          <p class="foot" id="profiles-meta"></p>
+          <div class="pager" id="profiles-pager" data-page-node-id="RemDxsB9sqhTDrAeT2InJU"></div>
+          <p class="foot" id="profiles-meta" data-page-node-id="WsWzRPgBxMd1H3N1wqI18l"></p>
         </div>
-        <div id="profiles-detail" class="hidden"></div>
+        <div id="profiles-detail" class="hidden" data-page-node-id="8vfjbMtHAf6DdKDxVYBhdQ"></div>
       </div>
 
       <!-- 用户账号 -->
-      <div class="panel hidden" id="panel-users">
-        <div class="panel-head">
-          <h2>用户账号</h2>
-          <button class="ghost sm" id="users-refresh">刷新</button>
+      <div class="panel hidden" id="panel-users" data-page-node-id="q5Wdsd2nXJBKvPoYBT24v2">
+        <div class="panel-head" data-page-node-id="o3mljwPM5Xk2cxEEbJ3W8D">
+          <h2 data-page-node-id="NVCGZKShKFfuq5jDqtUkxA">用户账号</h2>
+          <button class="ghost sm" id="users-refresh" data-page-node-id="huPOgIhXtporQTHGvLFUAd">刷新</button>
         </div>
-        <div class="table-wrap">
-          <table class="tbl">
-            <thead><tr><th>邮箱</th><th>状态</th><th>来源</th><th>创建</th><th>操作</th></tr></thead>
-            <tbody id="users-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+        <div class="table-wrap" data-page-node-id="7mYxRhiaMnoL3n5hyUtgRo">
+          <table class="tbl" data-page-node-id="DyGTyVbEL20h8hVNa48ZDU">
+            <thead data-page-node-id="Lc18WyszjdcybZXGqkSBMi"><tr data-page-node-id="BPYgXiHAaUuisznjMyQBoF"><th data-page-node-id="f5Qbl52l0pbGveD0bu7Ps6">邮箱</th><th data-page-node-id="gFyggilB9hPo4WEegloFFH">状态</th><th data-page-node-id="ZLAmFqKTY92BDh89CQdHry">来源</th><th data-page-node-id="rOWxTQBw3rcEUyhBcY1SkT">创建</th><th data-page-node-id="U9HzJZF4e7IJr2GgnDmRK3">操作</th></tr></thead>
+            <tbody id="users-body" data-page-node-id="Lql43dwMtbY99gtqA3IsKG"><tr data-page-node-id="r0V9tZOXvSpTqpgqJx42ZC"><td colspan="5" class="empty" data-page-node-id="2owMyVrB4SvJyWWiaFL2Uw">加载中…</td></tr></tbody>
           </table>
         </div>
       </div>
 
       <!-- 服务密钥 -->
-      <div class="panel hidden" id="panel-keys">
-        <div class="panel-head">
-          <h2>服务密钥（T3 · MCP/Skill）</h2>
-          <button class="primary sm" id="key-issue">签发新密钥</button>
+      <div class="panel hidden" id="panel-keys" data-page-node-id="zfFwZ4Hdu9W38ERVQCmGoU">
+        <div class="panel-head" data-page-node-id="vSIWCjK18FlwBD8WJntWP0">
+          <h2 data-page-node-id="KlQs8bJ0FcCKCtuD0sOURR">服务密钥（T3 · MCP/Skill）</h2>
+          <button class="primary sm" id="key-issue" data-page-node-id="C60w3zFCnhHMWYeE4ngh05">签发新密钥</button>
         </div>
-        <p class="explain">
-          <b>用途：</b>T3 服务密钥用于 <b>机机调用（MCP / Skill / 服务端对服务端）</b>。持有 <code>raw_secret</code> 的一方自签 T3 令牌，
-          经网关 <code>/api/t3data/</code> 通道读写数据；<code>scope</code> 决定读（<code>data:read</code>）或写（<code>data:write</code>），<code>tenant_bound</code> 限制可访问的租户。
+        <p class="explain" data-page-node-id="lF3t07A64FLcUZAeODX3Fv">
+          <b data-page-node-id="sMzUcAwdCkffuDH7SkDErD">用途：</b>T3 服务密钥用于 <b data-page-node-id="jzdA6D0eSSYj41rO9aGPwj">机机调用（MCP / Skill / 服务端对服务端）</b>。持有 <code data-page-node-id="6eEaHuIpTGqv6h0oAbCJvr">raw_secret</code> 的一方自签 T3 令牌，
+          经网关 <code data-page-node-id="afGiyBW55sH8izM1c8Dboh">/api/t3data/</code> 通道读写数据；<code data-page-node-id="CRKxFSOGVwYD8t4htYfUcA">scope</code> 决定读（<code data-page-node-id="QK0cFDM8cyplB7RMINLL95">data:read</code>）或写（<code data-page-node-id="oMcLAcU1O1MwlGe6qxJTBz">data:write</code>），<code data-page-node-id="D3cUMHQTVLe5LjORRLAQTj">tenant_bound</code> 限制可访问的租户。
           不想自己签名？用下方「签出访问令牌」让网关代签一个可直接粘贴的 Bearer。
         </p>
-        <div id="key-secret" class="secret-box hidden">
-          <p class="secret-warn">⚠️ 密钥仅显示一次，请立即复制保存：</p>
-          <code id="key-secret-val"></code>
-          <button class="ghost sm" id="key-secret-copy">复制</button>
+        <div id="key-secret" class="secret-box hidden" data-page-node-id="2MRNDW1L1i050fMeB3y7hd">
+          <p class="secret-warn" data-page-node-id="ZEGft9HkVwtpGHSNmEehql">⚠️ 密钥仅显示一次，请立即复制保存：</p>
+          <code id="key-secret-val" data-page-node-id="SkwhW0tySmnsxH4KVYBHkq"></code>
+          <button class="ghost sm" id="key-secret-copy" data-page-node-id="d3qjD2aMSmjoQilWp8dm8y">复制</button>
         </div>
 
         <!-- 代签访问令牌（便捷授权） -->
-        <details class="mint-box">
-          <summary>签出访问令牌（给 agent / MCP 直接用）</summary>
-          <div class="mint-grid">
-            <label>租户
-              <select id="mint-tenant">
-                <option value="weijiashi">weijiashi</option>
-                <option value="cloudlet">cloudlet</option>
+        <details class="mint-box" data-page-node-id="ZVAHYyOKk0Sps50bnEO4L9">
+          <summary data-page-node-id="J29h2blvvxXx2rujgjqZSI">签出访问令牌（给 agent / MCP 直接用）</summary>
+          <div class="mint-grid" data-page-node-id="NmjHP2eIHfHoHHpADhgb8a">
+            <label data-page-node-id="j3LZXPWKWWxTGyyqqhW5lC">租户
+              <select id="mint-tenant" data-page-node-id="8wgPBqc85SwaC0hm7357aw">
+                <option value="weijiashi" data-page-node-id="6GIARxyeuGJVPg8KbVcjCB">weijiashi</option>
+                <option value="cloudlet" data-page-node-id="ECukR09s3AS7hc2gr5pUmB">cloudlet</option>
               </select>
             </label>
-            <label>权限
-              <select id="mint-scope">
-                <option value="both">读写（data:read+write）</option>
-                <option value="read">只读（data:read）</option>
-                <option value="write">只写（data:write）</option>
+            <label data-page-node-id="rWja5CdjfvuhLvGj44lqUa">权限
+              <select id="mint-scope" data-page-node-id="JD6mgg1YnNDPhLMImBI7es">
+                <option value="both" data-page-node-id="AyC05ej8pNeAYpFHYSsIs4">读写（data:read+write）</option>
+                <option value="read" data-page-node-id="ZE00KwX2nXR7gjcZAjT7jS">只读（data:read）</option>
+                <option value="write" data-page-node-id="7tQ6DGz5AIVBGY066rUiZ3">只写（data:write）</option>
               </select>
             </label>
-            <label>有效期(秒)
-              <input id="mint-ttl" type="number" value="86400" min="60" step="60" />
+            <label data-page-node-id="J545JD7APNclPIvnqcQWXj">有效期(秒)
+              <input id="mint-ttl" type="number" value="86400" min="60" step="60" data-page-node-id="JGQ0KIFNT63MTqH0Vn4FdX" />
             </label>
-            <label>使用者 / 备注
-              <input id="mint-note" type="text" placeholder="如：CodeBuddy agent" />
+            <label data-page-node-id="pNKqm8lmg6vgYtETvTGULh">使用者 / 备注
+              <input id="mint-note" type="text" placeholder="如：CodeBuddy agent" data-page-node-id="cP999kT8TDzbzw22a5E9m2" />
             </label>
           </div>
-          <button class="primary sm" id="mint-btn" type="button">签出令牌</button>
-          <div id="mint-result" class="secret-box hidden">
-            <p class="secret-warn">⚠️ 令牌仅显示一次：</p>
-            <code id="mint-token"></code>
-            <button class="ghost sm" id="mint-copy" type="button">复制</button>
-            <p id="mint-usage" class="foot"></p>
+          <button class="primary sm" id="mint-btn" type="button" data-page-node-id="QhfiKxGehGpsBfLEMQuGg1">签出令牌</button>
+          <div id="mint-result" class="secret-box hidden" data-page-node-id="YsC4qlkN31V5d1F8imqr4n">
+            <p class="secret-warn" data-page-node-id="GAnhTltEibTw3bREMebHCG">⚠️ 令牌仅显示一次：</p>
+            <code id="mint-token" data-page-node-id="MidRo0reTu0Uz15tsrThrE"></code>
+            <button class="ghost sm" id="mint-copy" type="button" data-page-node-id="RHMOImkgnliWriYXl0ElXC">复制</button>
+            <p id="mint-usage" class="foot" data-page-node-id="bsS0kWLjMXwX8fMUTOC5mF"></p>
           </div>
         </details>
 
-        <div class="table-wrap">
-          <table class="tbl">
-            <thead><tr><th>ID</th><th>备注/使用者</th><th>作用域</th><th>状态</th><th>创建</th><th>有效期</th><th>操作</th></tr></thead>
-            <tbody id="keys-body"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
+        <div class="table-wrap" data-page-node-id="lMe5n3HMD5SvaLlvzaz2ER">
+          <table class="tbl" data-page-node-id="0ORxOVYvl8kSTY0cHCVLim">
+            <thead data-page-node-id="wCCMCAj7rVTjGLYhfBhjAI"><tr data-page-node-id="rQG3TpuC97biK4DyCicd71"><th data-page-node-id="U2UGce7MZyqAAJsVDJUuiR">ID</th><th data-page-node-id="7xZYI16fagVLYsTLwFKTr1">备注/使用者</th><th data-page-node-id="11huZ5djnQGmfyzC8kzMy0">作用域</th><th data-page-node-id="MBgRWjPkiQ8vC2CvhItQy0">状态</th><th data-page-node-id="rs28PqxxlCyV3JxPG99fF9">创建</th><th data-page-node-id="RRWqDxGx2FYJAHFEhhv5Hf">有效期</th><th data-page-node-id="RDSeTuaQ0xOXkczyB0aWm4">操作</th></tr></thead>
+            <tbody id="keys-body" data-page-node-id="2d3FTvtoV90hDyoKYfB0PA"><tr data-page-node-id="xsijM6mSyIDrS8KXBvO2hV"><td colspan="7" class="empty" data-page-node-id="CIWPIDI9DHqJt9OlMBbKIG">加载中…</td></tr></tbody>
           </table>
         </div>
       </div>
 
       <!-- 安全 -->
-      <div class="panel hidden" id="panel-security">
-        <div class="panel-head"><h2>修改管理员密码</h2></div>
-        <form id="pw-form" class="form">
-          <input id="pw-old" type="password" placeholder="当前密码" autocomplete="current-password" required />
-          <input id="pw-new" type="password" placeholder="新密码（≥8 位）" autocomplete="new-password" required />
-          <input id="pw-confirm" type="password" placeholder="确认新密码" autocomplete="new-password" required />
-          <button type="submit" id="pw-btn">保存</button>
-          <p id="pw-msg" class="err"></p>
+      <div class="panel hidden" id="panel-security" data-page-node-id="cAM4xr4BmG8dWgC34TZbZe">
+        <div class="panel-head" data-page-node-id="uvRlGXzL7r3xTnMUNd4Hm6"><h2 data-page-node-id="RL5P8TWVKhhkDDTCEHxgGJ">修改管理员密码</h2></div>
+        <form id="pw-form" class="form" data-page-node-id="S0ccKlYKGPHjWY0CiE7aX7">
+          <input id="pw-old" type="password" placeholder="当前密码" autocomplete="current-password" required data-page-node-id="tZkmUMn6Y0wKwNX2rSGyjZ" />
+          <input id="pw-new" type="password" placeholder="新密码（≥8 位）" autocomplete="new-password" required data-page-node-id="2sZQqTrIAYFk3pklhGXXqs" />
+          <input id="pw-confirm" type="password" placeholder="确认新密码" autocomplete="new-password" required data-page-node-id="FYukikno4G7HBm2TMttIUJ" />
+          <button type="submit" id="pw-btn" data-page-node-id="80jJpC6nZ8LlDwklyzB61u">保存</button>
+          <p id="pw-msg" class="err" data-page-node-id="IS8k1TigAS5zwTK032DCjO"></p>
         </form>
-        <div class="panel-head" style="margin-top:18px"><h2>账户恢复码</h2></div>
-        <div class="form">
-          <p class="foot">恢复码用于「忘记密码」时自助重置，与密码无关、泄露风险等同，请离线妥善保存。生成后旧码立即作废。</p>
-          <button class="ghost sm" id="rc-gen" type="button">生成恢复码</button>
-          <div id="rc-box" class="secret-box hidden">
-            <p class="secret-warn">⚠️ 恢复码仅显示一次，请立即复制保存：</p>
-            <code id="rc-val"></code>
-            <button class="ghost sm" id="rc-copy" type="button">复制</button>
+        <div class="panel-head" style="margin-top:18px" data-page-node-id="rD95zJxfvRJBpgXzjtD9xP"><h2 data-page-node-id="8QmxvS6UjvAYmG3RVcwMJq">账户恢复码</h2></div>
+        <div class="form" data-page-node-id="NdFgLcmVp45EHP31su0W7y">
+          <p class="foot" data-page-node-id="Hz8WMid0OjCQg4TqOxCvcf">恢复码用于「忘记密码」时自助重置，与密码无关、泄露风险等同，请离线妥善保存。生成后旧码立即作废。</p>
+          <button class="ghost sm" id="rc-gen" type="button" data-page-node-id="azS5Cd0CRFDgYln3rJ6PDb">生成恢复码</button>
+          <div id="rc-box" class="secret-box hidden" data-page-node-id="MWC5TzKz9TddLglB4yqnQS">
+            <p class="secret-warn" data-page-node-id="ks0lnNBTCk6fWTswjIga4z">⚠️ 恢复码仅显示一次，请立即复制保存：</p>
+            <code id="rc-val" data-page-node-id="RklAw0aJXoOMuHjI5AqYpI"></code>
+            <button class="ghost sm" id="rc-copy" type="button" data-page-node-id="u9DKi4DBJFn5iQUdNgT6L0">复制</button>
           </div>
         </div>
       </div>
 
       <!-- 管理员（平台） -->
-      <div class="panel hidden" id="panel-admins">
-        <div class="panel-head">
-          <h2>管理员（平台）</h2>
-          <button class="ghost sm" id="admins-refresh" type="button">刷新</button>
+      <div class="panel hidden" id="panel-admins" data-page-node-id="65SP8AVOEVjGQFhtL0kBfu">
+        <div class="panel-head" data-page-node-id="zLtiQjzUawcW0WjTJgJzFI">
+          <h2 data-page-node-id="n3DV21cDNi4fQqkehOouI4">管理员（平台）</h2>
+          <button class="ghost sm" id="admins-refresh" type="button" data-page-node-id="h8iDwGwYhN1fzrtD8jfdu2">刷新</button>
         </div>
-        <div class="table-wrap">
-          <table class="tbl">
-            <thead><tr><th>邮箱</th><th>角色</th><th>状态</th><th>创建</th><th>操作</th></tr></thead>
-            <tbody id="admins-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+        <div class="table-wrap" data-page-node-id="pe6MCTY6NmqSMOeg2yQkjD">
+          <table class="tbl" data-page-node-id="5hvPL3E6mne8UDwecEAgD7">
+            <thead data-page-node-id="pevkOoFrWjmRzHaKQoPLel"><tr data-page-node-id="mV7RwWg8I1eXCR8tkYGNga"><th data-page-node-id="ICHSuZd0pEP6E2r8OamzIC">邮箱</th><th data-page-node-id="OdrVRxbprXpnCwqMVDMDUT">角色</th><th data-page-node-id="aEhYkRO9lFnlGvH774pHKX">状态</th><th data-page-node-id="lHyDaIUczDYICs10kei0jx">创建</th><th data-page-node-id="hC7JheASLIMWmnCo2T7rrl">操作</th></tr></thead>
+            <tbody id="admins-body" data-page-node-id="5LvRhtx1DS1Y00Fla9jerB"><tr data-page-node-id="LoZm0hvhH3iyTBDC0V3zLx"><td colspan="5" class="empty" data-page-node-id="MzPXBuEmFASZCwKRpnApmf">加载中…</td></tr></tbody>
           </table>
         </div>
       </div>
 
       <!-- 审计日志 -->
-      <div class="panel hidden" id="panel-audit">
-        <div class="panel-head">
-          <h2>审计日志</h2>
-          <div class="toolbar">
-            <select id="audit-action">
-              <option value="">全部动作</option>
-              <option value="password.change">改密</option>
-              <option value="user.status">用户启停</option>
-              <option value="key.issue">签发密钥</option>
-              <option value="key.revoke">吊销密钥</option>
-              <option value="row.update">编辑数据</option>
-              <option value="row.delete">删除数据</option>
+      <div class="panel hidden" id="panel-audit" data-page-node-id="K0b5aaHSxFmtWn8IkFAPMp">
+        <div class="panel-head" data-page-node-id="tvi97dxdaTlYtYQ91cG60K">
+          <h2 data-page-node-id="Lq3URfsI8nBOM00xbDb5Q8">审计日志</h2>
+          <div class="toolbar" data-page-node-id="zj0pK0UzlLHIQpRQKlc9cl">
+            <select id="audit-action" data-page-node-id="SaYUP0JOR9QaFFQWBopVwD">
+              <option value="" data-page-node-id="YAumSPRse1LD9m4nB3Qeek">全部动作</option>
+              <option value="password.change" data-page-node-id="HdmKRnkGHPP3M1xjP1nkDk">改密</option>
+              <option value="user.status" data-page-node-id="sPWCbdLR5lFmdIe1Bq2FEt">用户启停</option>
+              <option value="key.issue" data-page-node-id="cG9GaGVVYKzO7NrDTtFlPy">签发密钥</option>
+              <option value="key.revoke" data-page-node-id="qlAODNvCfsDhFMnvWUat9g">吊销密钥</option>
+              <option value="row.update" data-page-node-id="v5boF5TP9V2NqFyEWaldu3">编辑数据</option>
+              <option value="row.delete" data-page-node-id="YusrolV2G0q3ZFLT4ojQIC">删除数据</option>
             </select>
-            <button class="ghost sm" id="audit-refresh">刷新</button>
+            <button class="ghost sm" id="audit-refresh" data-page-node-id="GfzCtCNXew0ZKdf6IcxB6z">刷新</button>
           </div>
         </div>
-        <div class="table-wrap">
-          <table class="tbl">
-            <thead><tr><th>时间</th><th>管理员</th><th>动作</th><th>目标</th><th>详情</th><th>IP</th></tr></thead>
-            <tbody id="audit-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
+        <div class="table-wrap" data-page-node-id="tzPqoK7EqksSlXD2UxU9Ai">
+          <table class="tbl" data-page-node-id="A0PJvDJ3AWIE4OtBFXSigB">
+            <thead data-page-node-id="iG5FxKlOHPgZFvFRIalBiF"><tr data-page-node-id="CEjF6E3HOEFwEhzjTFedEf"><th data-page-node-id="OAEB8oxVQLpXB8wbhywMO1">时间</th><th data-page-node-id="AFSACm5TauDIZqv9DSOJey">管理员</th><th data-page-node-id="C3tAGUUmr3ph4EtfAlxqEW">动作</th><th data-page-node-id="XMDxBjYabJmAj4s6LGWLHI">目标</th><th data-page-node-id="JqU8eARE1FQiPiZgwP6frE">详情</th><th data-page-node-id="ktboh1Cju6wluLAqcj7OUT">IP</th></tr></thead>
+            <tbody id="audit-body" data-page-node-id="06j92AERgY8TA1WWH6GkJ0"><tr data-page-node-id="XIEQD5RJL4EdydRPgDoiO1"><td colspan="6" class="empty" data-page-node-id="z3Nh4GSBQOoxSA5YdUCKkb">加载中…</td></tr></tbody>
           </table>
         </div>
-        <div class="pager" id="audit-pager"></div>
-        <p class="foot" id="audit-meta"></p>
+        <div class="pager" id="audit-pager" data-page-node-id="sbzBRGHJoJJeba103kt3m3"></div>
+        <p class="foot" id="audit-meta" data-page-node-id="5I5sJ2DPUrqB04p27isMYa"></p>
       </div>
 
       <!-- 部署授权（Agent 临时令牌审批） -->
-      <div class="panel hidden" id="panel-deployauth">
-        <div class="panel-head">
-          <h2>部署授权（Agent 临时令牌）</h2>
-          <button class="ghost sm" id="da-refresh" type="button">刷新</button>
+      <div class="panel hidden" id="panel-deployauth" data-page-node-id="YRQdrO35DipiFw3Xf1NKEC">
+        <div class="panel-head" data-page-node-id="bAluwy5kYZDZFfpT65eb9W">
+          <h2 data-page-node-id="3U63NH2SeR3W2ZOo9tO9hK">部署授权（Agent 临时令牌）</h2>
+          <button class="ghost sm" id="da-refresh" type="button" data-page-node-id="XnDdOrBA2amOUAYj4pTPA7">刷新</button>
         </div>
-        <p class="explain">
-          Agent 部署前会在此提交<strong>用途备注</strong>申请临时令牌；运维审批后才生效，且可<strong>随时吊销</strong>收回权限。
-          令牌为单活跃态、默认 8 小时（审批时可调整），过期或吊销后 Agent 部署将返回 401。
+        <p class="explain" data-page-node-id="bANoRC1IdDYsK5xv9v118O">
+          Agent 部署前会在此提交<strong data-page-node-id="NkAHn4wpaHYADayKsMlFx1">用途备注</strong>申请临时令牌；运维审批后才生效，且可<strong data-page-node-id="eAH7F6OeGZd5uu9YWya5BG">随时吊销</strong>收回权限。
+          令牌支持多活跃态（多个 Agent 可同时持有），默认 8 小时（审批时可调整），过期或吊销后 Agent 部署将返回 401；吊销可针对单个令牌。
         </p>
-        <h3 class="sub-h">待审批申请</h3>
-        <div class="table-wrap">
-          <table class="tbl">
-            <thead><tr><th>用途备注</th><th>建议时长</th><th>申请时间</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody id="da-pending"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+        <h3 class="sub-h" data-page-node-id="PjShtsHCifmkrinH9nl5Y8">待审批申请</h3>
+        <div class="table-wrap" data-page-node-id="z188iJEjNiC6lcBRSPuTzB">
+          <table class="tbl" data-page-node-id="OCVkKACfQSc2QPEQQkPVgj">
+            <thead data-page-node-id="QO2EaX8gBbmzjOetUae6q5"><tr data-page-node-id="RvxsDV65uiBlgW1oHznDDE"><th data-page-node-id="iEteOonZxdUZ0FH0KKDSHg">用途备注</th><th data-page-node-id="PaYX5phHyCkKTR8lHEfdAv">建议时长</th><th data-page-node-id="8lYf3HHjSAdqy3lu7k4Rgj">申请时间</th><th data-page-node-id="PowBnZQJBpX9Rzn8nL2OmB">状态</th><th data-page-node-id="0wachh9hVfTPE0Phhj4d03">操作</th></tr></thead>
+            <tbody id="da-pending" data-page-node-id="LrASG7ENWwYDkzyhCH3bhd"><tr data-page-node-id="yrHCtpEzWDBPDIzYlWz3dX"><td colspan="5" class="empty" data-page-node-id="T5zQgLtTF9XIbemkc68ouO">加载中…</td></tr></tbody>
           </table>
         </div>
-        <h3 class="sub-h">近期记录</h3>
-        <div class="table-wrap">
-          <table class="tbl">
-            <thead><tr><th>用途备注</th><th>申请时间</th><th>决定</th><th>有效期至</th><th>活跃</th></tr></thead>
-            <tbody id="da-history"><tr><td colspan="5" class="empty">无</td></tr></tbody>
+        <h3 class="sub-h" data-page-node-id="NQkAM6GJl53H5lndSJH12t">近期记录</h3>
+        <div class="table-wrap" data-page-node-id="mEkHXKU9hc3kRGOXWtLArg">
+          <table class="tbl" data-page-node-id="KHZCZoxqgItBgDXF80S91n">
+            <thead data-page-node-id="lSwAr6W48nQGel4plafIB7"><tr data-page-node-id="DeXD2EM24h13De2K84HuwY"><th data-page-node-id="yBsrNFjlts6RgBS35yUD47">用途备注</th><th data-page-node-id="KJb3qoZjKdDpdUt9GZiBwQ">申请时间</th><th data-page-node-id="TsCXDd88o8p1cmgFwM0zmL">决定</th><th data-page-node-id="MpJ2Re5cukeD6mEkd2neMg">有效期至</th><th data-page-node-id="IrM2TA0s73rMfKVput9S7Q">活跃</th><th data-page-node-id="daHistOp">操作</th></tr></thead>
+            <tbody id="da-history" data-page-node-id="QWGUz00DKO1eoAeO68Uibe"><tr data-page-node-id="Ibmb4IYkub1QTvqv1OUjAf"><td colspan="6" class="empty" data-page-node-id="czUz1NFuQVcFHdwI1M6gYz">无</td></tr></tbody>
           </table>
         </div>
-        <div id="da-token" class="secret-box hidden">
-          <p class="secret-warn">⚠️ 令牌已激活（仅显示一次，Agent 会自动取用）：</p>
-          <code id="da-token-val"></code>
-          <button class="ghost sm" id="da-token-copy" type="button">复制</button>
+        <div id="da-token" class="secret-box hidden" data-page-node-id="IOwzNpGycGCqp8HOpo3WFn">
+          <p class="secret-warn" data-page-node-id="8MFgPRlzYy7QGNsAYHiUEI">⚠️ 令牌已激活（仅显示一次，Agent 会自动取用）：</p>
+          <code id="da-token-val" data-page-node-id="LKZMRLAQkfbJbB4iPf8oIv"></code>
+          <button class="ghost sm" id="da-token-copy" type="button" data-page-node-id="uhrkvf3bC8l5zNkpBSYHr7">复制</button>
         </div>
-        <div class="panel-head" style="margin-top:18px">
-          <h3 class="sub-h" style="margin:0">收回权限</h3>
-          <button class="act danger sm" id="da-revoke" type="button">吊销当前令牌</button>
+        <div class="panel-head" style="margin-top:18px" data-page-node-id="64jtH2My3JjoMbH5oIgTSZ">
+          <h3 class="sub-h" style="margin:0" data-page-node-id="qvmFQ8XBW6mHShOAZXa3Eb">收回权限</h3>
+          <button class="act danger sm" id="da-revoke" type="button" data-page-node-id="eIirPXB4JMvU9f21XRIV01">吊销全部令牌</button>
         </div>
-        <p class="foot">吊销后 Agent 正在进行的部署会立即失效；如需再次部署，Agent 会重新申请、由你再次审批。</p>
+        <p class="foot" data-page-node-id="iW97lhvfO81s8OUxMIuAR8">吊销后 Agent 正在进行的部署会立即失效；如需再次部署，Agent 会重新申请、由你再次审批。</p>
       </div>
     </section>
-    <footer class="footer">
-      <span class="f-brand">微家事 · 管理后台</span>
-      <button class="f-ver" id="ver-copy" type="button" title="点击复制版本矩阵（前端 · 网关 · 数据湖）">
-        <span class="f-chip"><i>前端</i><b id="ver-front">v0.0.3</b></span>
-        <span class="f-chip"><i>网关</i><b id="ver-gw">-</b></span>
-        <span class="f-chip"><i>数据湖</i><b id="ver-dl">-</b></span>
+    <footer class="footer" data-page-node-id="VIFlKBn4yWLL9KIGgW6TNd">
+      <span class="f-brand" data-page-node-id="vb9wQ5zG5Usre5OLmefYDx">微家事 · 管理后台</span>
+      <button class="f-ver" id="ver-copy" type="button" title="点击复制版本矩阵（前端 · 网关 · 数据湖）" data-page-node-id="kn7YNMYioIM9bVODUMGSUG">
+        <span class="f-chip" data-page-node-id="CS70zfMlo6OkuDhDqbc5sz"><i data-page-node-id="tTpeXjYxJ46sZtAjq16shT">前端</i><b id="ver-front" data-page-node-id="Ee8hbYRY9jEZFGc6GYHbj3">v0.0.3</b></span>
+        <span class="f-chip" data-page-node-id="ffqv2EeIAhGE7pCDNOzSy9"><i data-page-node-id="m8j1D6Wq2sit43k3iIaAZw">网关</i><b id="ver-gw" data-page-node-id="twYbPdxjshFW8IvNW0UwiG">-</b></span>
+        <span class="f-chip" data-page-node-id="QggNJZVlgu0N0fVTiQo60I"><i data-page-node-id="4iF65aZaEYPTKSc6hpSkJO">数据湖</i><b id="ver-dl" data-page-node-id="j9BKVtl7MWFVqfuZi5CHXc">-</b></span>
       </button>
-      <button class="f-deploy" id="deploy-btn" type="button" title="一键部署：拉取最新代码，数据湖 + SPA 配套发布（platform-admin 专属）">⟳ 版本更新</button>
+      <button class="f-deploy" id="deploy-btn" type="button" title="一键部署：拉取最新代码，数据湖 + SPA 配套发布（platform-admin 专属）" data-page-node-id="nwaRW4ZeHa2Hb99Fwhmnmz">⟳ 版本更新</button>
     </footer>
   </div>
 
   <!-- 部署进度浮层 -->
-  <div id="deploy-overlay" class="overlay hidden">
-    <div class="overlay-box">
-      <div class="overlay-head">
-        <span id="deploy-title">部署进行中…</span>
-        <button class="ghost sm" id="deploy-close" type="button">关闭</button>
+  <div id="deploy-overlay" class="overlay hidden" data-page-node-id="AKMnpglH8DGjwEEZX1U6o3">
+    <div class="overlay-box" data-page-node-id="X4fm2XV5NkGIME06Arr7zB">
+      <div class="overlay-head" data-page-node-id="2iOmcoN5E9jfebwj2YlEn6">
+        <span id="deploy-title" data-page-node-id="W67U9DhGKvViwwWD1xYZZI">部署进行中…</span>
+        <button class="ghost sm" id="deploy-close" type="button" data-page-node-id="CojV6ngingkkZ75lASbzJo">关闭</button>
       </div>
-      <div class="overlay-status" id="deploy-status">初始化…</div>
-      <pre class="overlay-log" id="deploy-log"></pre>
+      <div class="overlay-status" id="deploy-status" data-page-node-id="LLMug0WjVwEyN8JYe2BMpw">初始化…</div>
+      <pre class="overlay-log" id="deploy-log" data-page-node-id="KGBNvf85jTUF8Y75OLTwNN"></pre>
     </div>
   </div>
 
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden" data-page-node-id="KHpD7uSyJ5eEEsylcWLcA0"></div>
   <script src="/admin/app.js"></script>
 </body>
 </html>

@@ -994,12 +994,19 @@ $('#da-pending').addEventListener('click', async (e) => {
     catch (err) { toast(err.message, false); }
   }
 });
+$('#da-history').addEventListener('click', async (e) => {
+  const rv = e.target.getAttribute('data-revoke');
+  if (!rv) return;
+  if (!confirm('确认吊销该 Agent 令牌？该 Agent 后续部署将立即失效，不影响其他令牌。')) return;
+  try { await api('/api/t4data/agent-token/revoke', { method: 'POST', body: JSON.stringify({ requestId: rv }) }); toast('已吊销该令牌'); loadDeployAuth(); }
+  catch (err) { toast(err.message, false); }
+});
 $('#da-token-copy').addEventListener('click', () => {
   const v = $('#da-token-val').textContent;
   navigator.clipboard?.writeText(v).then(() => toast('已复制')).catch(() => toast('复制失败', false));
 });
 $('#da-revoke').addEventListener('click', async () => {
-  if (!confirm('确认吊销当前 Agent 部署令牌？Agent 正在进行的部署将立即失效。')) return;
+  if (!confirm('确认吊销全部活跃令牌？所有 Agent 将立即失效，需重新申请审批。')) return;
   try { await api('/api/t4data/agent-token/revoke', { method: 'POST', body: '{}' }); $('#da-token').classList.add('hidden'); toast('已吊销'); loadDeployAuth(); }
   catch (err) { toast(err.message, false); }
 });
@@ -1165,16 +1172,17 @@ function renderDeployAuth(d) {
         <button class="ghost sm" data-reject="${esc(r.requestId)}" type="button">拒绝</button>
       </td>
     </tr>`).join('');
-  const he = $('#da-history');
-  if (!history.length) he.innerHTML = '<tr><td colspan="5" class="empty">无</td></tr>';
-  else he.innerHTML = history.map((r) => `
-    <tr>
-      <td>${esc(r.purpose)}</td>
-      <td>${fmtTime(r.createdAt)}</td>
-      <td>${daBadge(r.status)}</td>
-      <td>${r.expiresAtMs ? fmtTime(r.expiresAtMs) : '-'}</td>
-      <td>${r.active ? '✓ 活跃' : '-'}</td>
-    </tr>`).join('');
+    const he = $('#da-history');
+    if (!history.length) he.innerHTML = '<tr><td colspan="6" class="empty">无</td></tr>';
+    else he.innerHTML = history.map((r) => `
+      <tr>
+        <td>${esc(r.purpose)}</td>
+        <td>${fmtTime(r.createdAt)}</td>
+        <td>${daBadge(r.status)}</td>
+        <td>${r.expiresAtMs ? fmtTime(r.expiresAtMs) : '-'}</td>
+        <td>${r.active ? '✓ 活跃' : '-'}</td>
+        <td>${r.active ? `<button class="ghost sm" data-revoke="${esc(r.requestId)}" type="button">吊销</button>` : '-'}</td>
+      </tr>`).join('');
 }
 
 // 启动：有令牌则恢复会话（重建角色/身份/租户下拉），否则进登录页
