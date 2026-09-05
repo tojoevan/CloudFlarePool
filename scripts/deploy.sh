@@ -106,15 +106,13 @@ echo "[deploy] gateway runtime synced"
 
 # ---- 部署后网关重启（默认不重启，零中断）----
 # 仅当网关运行时代码(server.js)真正变化时才需重启；SPA/数据湖发版不触发。
-# 重启方式（读取顺序：先继承环境变量，再读网关 .env 文件）：
-#   1) DEPLOY_RESTART_CMD（推荐，用户显式指定）：如 `pm2 restart <app>`。由用户自行保证该命令
-#      以正确用户/cwd 拉起新 server.js，最可靠。
-#   2) 【已废弃】kill 网关进程触发宝塔自愈的自动重启：经生产实测，宝塔对【外部 kill】走的是
-#      应急路径（以 root、错误 cwd 拉起 node server.js），会导致网关起不来/502，且偶有卡死；
-#      宝塔仅在【面板点「重启」】时才用正确 www 上下文干净重启。故 kill 方案不安全，已删除。
-# ⚠️ 若未配置 DEPLOY_RESTART_CMD 且 server.js 变化：仅打印提示，需手动在宝塔点「重启」网关，
-#    切勿靠 kill 自动触发。
-# ⚠️ 重启命令必须「延迟+脱离进程树」执行：deploy.sh 是网关(node) spawn 的子进程，同步杀网关
+# 两种自动重启方式（可叠加，读取顺序：先继承环境变量，再读网关 .env 文件）：
+#   1) DEPLOY_RESTART_CMD：用户显式指定重启命令（如 pm2 restart xxx），最可靠；
+#   2) DEPLOY_AUTO_RESTART=1：利用宝塔「进程守护/崩溃自启」——部署后延迟杀掉网关
+#      node 进程（按「node + 命令行含 server.js」在进程树中精准定位，兼容 supervisor
+#      双 PID 托管形态），由宝塔重新拉起新 server.js。无需知道 pm2/supervisor 细节，
+#      但依赖宝塔已对该网关开启异常退出自动重启。
+# ⚠️ 重启必须「延迟+脱离进程树」：deploy.sh 是网关(node) spawn 的子进程，同步杀网关
 #    会连部署任务一起带走、致状态写不全。延迟 3s 待部署落库成功后再重启。
 # 从网关 .env 读取配置（不 source 全文件，避免污染其它环境；优先用已继承的环境变量）。
 env_get () {
@@ -126,6 +124,7 @@ env_get () {
   printf '%s' "$v"
 }
 RESTART_CMD=$(env_get DEPLOY_RESTART_CMD)
+AUTO_RESTART=$(env_get DEPLOY_AUTO_RESTART)
 LAST_SHA="$WEB_ROOT/.deploy-last-serverjs.sha"
 NEW_SHA=$(sha256sum "$WEB_ROOT/server.js" 2>/dev/null | awk '{print $1}')
 NEED_RESTART=0
@@ -142,15 +141,35 @@ if [ -n "$NEW_SHA" ]; then
 fi
 if [ "$NEED_RESTART" = "1" ]; then
   if [ -n "$RESTART_CMD" ]; then
-    # DEPLOY_RESTART_CMD 由用户显式配置（如 pm2 restart <app>），以正确用户/cwd 拉起新 server.js，最可靠。
     echo "[deploy] server.js changed -> scheduling restart: $RESTART_CMD"
     setsid bash -c "sleep 3; ${RESTART_CMD}" </dev/null >/dev/null 2>&1 &
     echo "[deploy] restart scheduled (deferred 3s, detached)"
+  elif [ "${AUTO_RESTART:-0}" = "1" ]; then
+    # 定位真正运行网关 server.js 的 node 进程（而非其 supervisor 父进程）。
+    # 直接按「node 进程 + 命令行含 server.js」在进程树中查找，不依赖 $PPID 假设，
+    # 兼容「supervisor 父进程 + node 子进程」双 PID 托管形态（如宝塔进程守护）。
+    # 优先用完整路径 $WEB_ROOT/server.js 精确匹配；匹配不到再退化为含 server.js 的 node 进程。
+    gwpid=""
+    for p in $(pgrep -f "node" 2>/dev/null); do
+      cl=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null || true)
+      if printf '%s' "$cl" | grep -q "$WEB_ROOT/server\.js"; then gwpid=$p; break; fi
+    done
+    if [ -z "$gwpid" ]; then
+      for p in $(pgrep -f "node" 2>/dev/null); do
+        cl=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null || true)
+        if printf '%s' "$cl" | grep -q "server\.js"; then gwpid=$p; break; fi
+      done
+    fi
+    [ -z "$gwpid" ] && gwpid=$PPID
+    if [ -n "$gwpid" ] && [ "$gwpid" != "$$" ]; then
+      echo "[deploy] server.js changed -> auto-restart: kill gateway pid=$gwpid (宝塔守护将重新拉起新 server.js)"
+      setsid bash -c "sleep 3; kill -9 $gwpid" </dev/null >/dev/null 2>&1 &
+      echo "[deploy] gateway kill scheduled (deferred 3s, detached)"
+    else
+      echo "[deploy] WARN: 未定位到网关 node 进程，跳过自动重启（请改用 DEPLOY_RESTART_CMD）" >&2
+    fi
   else
-    # ⚠️ 不提供 kill 网关触发宝塔自愈的自动重启：生产实测，宝塔对【外部 kill】走应急路径
-    # （root + 错误 cwd 拉起 node server.js），会导致网关起不来/502 甚至卡死；仅【面板点重启】
-    # 才用正确 www 上下文干净重启。故 server.js 变化的部署仍需手动在宝塔点「重启」网关。
-    echo "[deploy] server.js changed 但未配置 DEPLOY_RESTART_CMD -> 需手动在宝塔点「重启」网关方可生效（kill 自动重启已废弃：不安全）"
+    echo "[deploy] server.js changed 但未配置重启方式 -> 需手动在宝塔重启网关方可生效"
   fi
 else
   echo "[deploy] server.js 未变化，跳过网关重启"
