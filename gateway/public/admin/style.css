@@ -82,6 +82,21 @@ html, body {
 .v-cell b { font-weight: 600; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .v-cell b.warn { color: var(--danger); }
 @media (min-width: 720px) { .v-grid { grid-template-columns: repeat(4, 1fr); } }
+/* 移动端：版本矩阵保持 2×2，cell 改为小卡片（标签在上/版本值在下），
+   用 minmax(0,1fr) 防止长版本号撑破列宽导致换行错位；避免单列堆叠成 4 行 */
+@media (max-width: 719px) {
+  .v-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; }
+  .v-cell {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 7px 9px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .v-cell b { font-size: 13px; word-break: break-all; }
+}
 .f-deploy {
   display: inline-flex;
   align-items: center;
