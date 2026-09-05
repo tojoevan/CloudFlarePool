@@ -290,6 +290,24 @@ button.ghost {
   border-bottom-color: var(--brand);
 }
 
+/* 移动端：标签栏改为横向滚动，避免中文标题被挤压竖排、tab 超屏溢出 */
+@media (max-width: 719px) {
+  .tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 4px;
+    padding-bottom: 2px;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 10px;
+  }
+}
+
 .panel-head {
   display: flex;
   align-items: center;
