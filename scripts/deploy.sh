@@ -104,11 +104,59 @@ if [ ! -e "$WEB_ROOT/node_modules" ] && [ -d "$REPO_DIR/node_modules" ]; then
 fi
 echo "[deploy] gateway runtime synced"
 
-# 可选：重启网关（仅 server.js 变更时才需要）。默认不重启，避免部署期间中断；
-# 如需在 server.js 改动后自动重启，在网关 .env 配置 DEPLOY_RESTART_CMD。
-if [ -n "${DEPLOY_RESTART_CMD:-}" ]; then
-  echo "[deploy] restart: $DEPLOY_RESTART_CMD"
-  eval "$DEPLOY_RESTART_CMD"
+# ---- 部署后网关重启（默认不重启，零中断）----
+# 仅当网关运行时代码(server.js)真正变化时才需重启；SPA/数据湖发版不触发。
+# 两种自动重启方式（可叠加，读取顺序：先继承环境变量，再读网关 .env 文件）：
+#   1) DEPLOY_RESTART_CMD：用户显式指定重启命令（如 pm2 restart xxx），最可靠；
+#   2) DEPLOY_AUTO_RESTART=1：利用宝塔「进程守护/崩溃自启」——部署后延迟杀掉网关
+#      进程，由宝塔重新拉起新 server.js。无需知道 pm2/supervisor 细节，但依赖宝塔
+#      已对该网关开启异常退出自动重启。
+# ⚠️ 重启必须「延迟+脱离进程树」：deploy.sh 是网关(node) spawn 的子进程，同步杀网关
+#    会连部署任务一起带走、致状态写不全。延迟 3s 待部署落库成功后再重启。
+# 从网关 .env 读取配置（不 source 全文件，避免污染其它环境；优先用已继承的环境变量）。
+env_get () {
+  local k="$1" v=""
+  if [ -n "${!k:-}" ]; then v="${!k}";
+  elif [ -f "$WEB_ROOT/.env" ]; then
+    v=$(grep -E "^[[:space:]]*$k[[:space:]]*=" "$WEB_ROOT/.env" 2>/dev/null | tail -1 | sed -E "s/^[^=]+=//" | sed -E "s/^[\"']|[\"']\$//g")
+  fi
+  printf '%s' "$v"
+}
+RESTART_CMD=$(env_get DEPLOY_RESTART_CMD)
+AUTO_RESTART=$(env_get DEPLOY_AUTO_RESTART)
+LAST_SHA="$WEB_ROOT/.deploy-last-serverjs.sha"
+NEW_SHA=$(sha256sum "$WEB_ROOT/server.js" 2>/dev/null | awk '{print $1}')
+NEED_RESTART=0
+if [ -n "$NEW_SHA" ]; then
+  if [ -f "$LAST_SHA" ]; then
+    if [ "$(cat "$LAST_SHA" 2>/dev/null)" != "$NEW_SHA" ]; then
+      NEED_RESTART=1
+      echo "$NEW_SHA" > "$LAST_SHA" 2>/dev/null || true
+    fi
+  else
+    # 首次：仅建立基线，不重启（避免对未变更的 server.js 误重启）
+    echo "$NEW_SHA" > "$LAST_SHA" 2>/dev/null || true
+  fi
+fi
+if [ "$NEED_RESTART" = "1" ]; then
+  if [ -n "$RESTART_CMD" ]; then
+    echo "[deploy] server.js changed -> scheduling restart: $RESTART_CMD"
+    setsid bash -c "sleep 3; ${RESTART_CMD}" </dev/null >/dev/null 2>&1 &
+    echo "[deploy] restart scheduled (deferred 3s, detached)"
+  elif [ "${AUTO_RESTART:-0}" = "1" ]; then
+    gwpid=$PPID
+    if [ -r "/proc/$gwpid/cmdline" ] && tr '\0' ' ' < "/proc/$gwpid/cmdline" 2>/dev/null | grep -q "server.js"; then
+      echo "[deploy] server.js changed -> auto-restart: kill gateway pid=$gwpid (宝塔守护将重新拉起)"
+      setsid bash -c "sleep 3; kill -9 $gwpid" </dev/null >/dev/null 2>&1 &
+      echo "[deploy] gateway kill scheduled (deferred 3s, detached)"
+    else
+      echo "[deploy] WARN: 父进程($gwpid)非 node server.js，跳过自动重启（请改用 DEPLOY_RESTART_CMD）" >&2
+    fi
+  else
+    echo "[deploy] server.js changed 但未配置重启方式 -> 需手动在宝塔重启网关方可生效"
+  fi
+else
+  echo "[deploy] server.js 未变化，跳过网关重启"
 fi
 
 echo "[deploy] DONE head=$HEAD"
