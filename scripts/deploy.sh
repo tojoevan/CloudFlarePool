@@ -7,12 +7,23 @@
 #   - version.json 由本脚本重写；网关 /api/health 懒读它，故部署后**无需重启网关**
 #     即在后台「版本矩阵」显示新 HEAD。仅当 server.js 自身改动时才需宝塔重启网关。
 #   - CLOUDFLARE_API_TOKEN 由网关进程环境继承（网关 .env 中配置），wrangler 直接读取。
+#
+# 【部署权限规则（D）】本脚本只可由 www 身份运行（宝塔「版本更新」按钮经 www 网关进程 spawn 即满足）。
+#   严禁以 root 手跑本脚本或在 /opt/cloudflarepool 以 root 执行 git：root 写下的对象属主为 root，
+#   会导致 www 运行的按钮后续 git pull 写不进 .git/objects（EACCES）。仓库与 wrangler HOME 已统一为 www 属主/可写。
 set -euo pipefail
+
+# —— 权限守卫（B）：禁止以 root 运行，防止权限污染 ——
+if [ "$(id -u)" -eq 0 ]; then
+  echo "[deploy] ERROR: 禁止以 root 运行 deploy.sh（会造成 /opt/cloudflarepool 权限污染，致按钮后续 git pull EACCES）。" >&2
+  echo "[deploy] 请以 www 身份运行，或经宝塔「版本更新」按钮触发。" >&2
+  exit 1
+fi
 
 REPO_DIR="${DEPLOY_REPO_DIR:-/opt/cloudflarepool}"
 WEB_ROOT="${DEPLOY_WEB_ROOT:-/www/wwwroot/home.inkspcl.com}"
 
-# 部署用 SSH 只读密钥（中立路径，网关无论以 root/www 运行均可读取，git pull 不依赖 ~/.ssh）
+# 部署用 SSH 只读密钥（中立路径，www 可读取；契合「只用 www 操作仓库」规则，不依赖 ~/.ssh）
 export GIT_SSH_COMMAND="ssh -i /opt/cloudflarepool-deploy/id_ed25519 -o StrictHostKeyChecking=no"
 
 # 网关进程（www）继承了启动者 root 的 HOME=/root（700，www 不可进入），

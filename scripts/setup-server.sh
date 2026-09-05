@@ -49,9 +49,9 @@ if [ "${GITHUB_DEPLOY_KEY_ADDED:-0}" != "1" ]; then
   exit 0
 fi
 
-# 仓库可能由其他用户克隆（如 root 克隆后 chown 给 www），当前用户跑 git 会触发
-# "dubious ownership" 安全锁导致脚本中止、写 .env 那步永远执行不到。提前加白名单解锁。
-git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
+# 仓库可能由其他用户克隆，当前用户跑 git 会触发 "dubious ownership" 安全锁导致脚本中止。
+# 用 --system 写入系统级白名单：真正跑部署的是 www，仅 --global 只写 root 自身无效。
+git config --system --add safe.directory "$REPO_DIR" 2>/dev/null || true
 
 echo "[setup] 检查基础依赖..."
 command -v git >/dev/null 2>&1 || { echo "✗ 未安装 git，请先安装"; exit 1; }
@@ -100,6 +100,21 @@ done
 # 若需部署后自动重启网关（server.js 变更时），在 WEB_ROOT/.env 配置重启命令，例如：
 #   DEPLOY_RESTART_CMD="pm2 restart home-inkspcl"
 # 默认留空 = 不自动重启（routine 部署无需重启）。
+
+# —— 权限对齐（A）：把仓库与部署密钥属主统一为 www ——
+# 运行「版本更新」按钮的网关进程以 www 身份 spawn deploy.sh，必须能写入 .git 且读取部署密钥。
+# setup 自身必须 root 跑（写 /opt、/www、全局装 wrangler），故克隆等 root 操作后立即 chown 给 www，
+# 使「www 属主」成为初始默认态，而非手动修一次；setup 重跑也结尾 chown 回 www，防止复发。
+# 【部署权限规则（D）】该仓库只用 www 操作，切勿以 root 在此跑 git/deploy（同 deploy.sh 守卫）。
+WWW_USER="www"
+if id "$WWW_USER" >/dev/null 2>&1; then
+  chown -R "$WWW_USER:$(id -gn "$WWW_USER")" "$REPO_DIR" "$(dirname "$DEPLOY_KEY")"
+  chmod 600 "$DEPLOY_KEY"          # 私钥保持 600
+  chmod 755 "$(dirname "$DEPLOY_KEY")"
+  echo "[setup] 已将仓库与部署密钥属主统一为 $WWW_USER（防 root 权限污染，契合只以 www 操作规则）"
+else
+  echo "[setup] 警告：未找到 $WWW_USER，跳过 chown；请手动确保仓库与部署密钥对运行网关的用户可写/可读。" >&2
+fi
 
 echo "[setup] 完成。"
 echo "[setup] 下一步：在宝塔面板重启网关（加载 /api/t4data/deploy 路由）。"
