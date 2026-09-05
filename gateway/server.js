@@ -76,26 +76,32 @@ function readGatewayGit() {
 const DEPLOY_INTERVAL_MS = 5 * 60 * 1000;
 const deployRate = new Map();
 
-// ---- Agent 自助部署通道 ----
-// Agent 经 Bearer 静态令牌 + 有效期，调用 /api/agent/deploy 触发部署（全程零 SSH）。
-// 令牌由运维经 T4 管理员端点 /api/t4data/agent-token/rotate 轮换并下发给 Agent；
-// Agent 本地（~/.workbuddy）仅存令牌，绝不进仓库。过期即 401。
-const AGENT_TOKEN = process.env.AGENT_DEPLOY_TOKEN || '';
-const AGENT_TOKEN_EXPIRES_AT = process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT
-  ? Date.parse(process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT)
-  : 0;
+// ---- Agent 自助部署通道（申请 / 审批 / 吊销 模型）----
+// 设计：Agent 先 POST /api/agent/token/request {purpose} 申请临时令牌（pending），
+// 运维在管理后台「部署授权」面板审批 → 网关生成令牌并激活；Agent 轮询
+// GET /api/agent/token/request/:id 取用；运维可随时在面板「吊销」收回权限（401）。
+// 令牌为单活跃态（同一时刻仅一个有效），存于 AGENT_DEPLOY_TOKEN / _EXPIRES_AT
+// （审批时写入并持久化 .env，重启后仍有效，直到被吊销；verifyAgentDeploy 动态读取）。
+
+// 申请记录：requestId -> { id, purpose, requestedTtlHours, status, createdAt, decidedAt, decidedBy, token, expiresAtMs }
+const agentTokenRequests = new Map();
 
 function verifyAgentDeploy(req) {
   const token = bearerFrom(req);
   if (!token) return { ok: false, status: 401, error: 'unauthorized: missing agent bearer' };
-  if (!AGENT_TOKEN) return { ok: false, status: 503, error: 'agent deploy not configured (no AGENT_DEPLOY_TOKEN on gateway)' };
+  // 动态读取活跃令牌（审批/吊销会改写 process.env，不能用加载时的 const 快照）
+  const activeToken = process.env.AGENT_DEPLOY_TOKEN || '';
+  const activeExpiresAt = process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT
+    ? Date.parse(process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT)
+    : 0;
+  if (!activeToken) return { ok: false, status: 503, error: 'agent deploy not authorized (no active token; ask operator to approve a request)' };
   const a = Buffer.from(token);
-  const b = Buffer.from(AGENT_TOKEN);
+  const b = Buffer.from(activeToken);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    return { ok: false, status: 403, error: 'forbidden: invalid agent token' };
+    return { ok: false, status: 403, error: 'forbidden: invalid agent token (may be revoked)' };
   }
-  if (!AGENT_TOKEN_EXPIRES_AT || Date.now() > AGENT_TOKEN_EXPIRES_AT) {
-    return { ok: false, status: 401, error: 'agent token expired, ask operator to rotate (POST /api/t4data/agent-token/rotate)' };
+  if (!activeExpiresAt || Date.now() > activeExpiresAt) {
+    return { ok: false, status: 401, error: 'agent token expired, ask operator to approve a new request' };
   }
   return { ok: true };
 }
@@ -118,6 +124,19 @@ async function persistAgentToken(token, expiresAtISO) {
   set('AGENT_DEPLOY_TOKEN', token);
   set('AGENT_DEPLOY_TOKEN_EXPIRES_AT', expiresAtISO);
   await writeFile(envPath, text, { mode: 0o600 });
+}
+
+// 审批时激活令牌：写入 process.env + 持久化 .env。
+async function setActiveAgentToken(token, expiresAtISO) {
+  process.env.AGENT_DEPLOY_TOKEN = token;
+  process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT = expiresAtISO;
+  await persistAgentToken(token, expiresAtISO);
+}
+// 吊销：清空活跃令牌（process.env + .env），Agent 后续调用即 401（收回权限）。
+async function clearActiveAgentToken() {
+  process.env.AGENT_DEPLOY_TOKEN = '';
+  process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT = '';
+  await persistAgentToken('', '');
 }
 
 function sendJson(res, status, obj) {
@@ -672,7 +691,42 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // ---- Agent 自助部署通道（Bearer 静态令牌 + 有效期）----
+    // ---- Agent 部署令牌：申请（公开，无需鉴权）----
+    // Agent 提交用途备注申请临时令牌；运维在后台审批后才生效。返回 requestId 供轮询。
+    if (req.method === 'POST' && path === '/api/agent/token/request') {
+      let body = {};
+      try { body = await readJson(req); } catch { body = {}; }
+      const purpose = String(body.purpose || '').trim();
+      if (!purpose) { sendJson(res, 400, { error: 'purpose required (用途备注)' }); return; }
+      if (purpose.length > 200) { sendJson(res, 400, { error: 'purpose too long (<=200)' }); return; }
+      const requestedTtlHours = Math.min(72, Math.max(1, Number(body.ttl_hours) || 8));
+      const id = 'areq_' + crypto.randomBytes(10).toString('hex');
+      agentTokenRequests.set(id, {
+        id, purpose, requestedTtlHours,
+        status: 'pending', createdAt: Date.now(),
+        decidedAt: null, decidedBy: null, token: null, expiresAtMs: null,
+      });
+      console.log(`[agent-token] request ${id} purpose="${purpose}" ttl=${requestedTtlHours}h`);
+      sendJson(res, 202, { requestId: id, status: 'pending', requestedTtlHours, note: '已提交申请，等待运维在管理后台「部署授权」审批' });
+      return;
+    }
+    // Agent 轮询取用令牌（公开，凭 requestId；requestId 为不透明随机串，仅申请方持有）
+    const agentReqMatch = path.match(/^\/api\/agent\/token\/request\/([\w-]+)$/);
+    if (req.method === 'GET' && agentReqMatch) {
+      const rec = agentTokenRequests.get(agentReqMatch[1]);
+      if (!rec) { sendJson(res, 404, { error: 'request not found' }); return; }
+      if (rec.status === 'pending') { sendJson(res, 200, { requestId: rec.id, status: 'pending' }); return; }
+      if (rec.status === 'rejected') { sendJson(res, 200, { requestId: rec.id, status: 'rejected' }); return; }
+      if (rec.status === 'revoked') { sendJson(res, 200, { requestId: rec.id, status: 'revoked' }); return; }
+      if (!rec.token || !rec.expiresAtMs || Date.now() > rec.expiresAtMs) {
+        sendJson(res, 401, { requestId: rec.id, status: 'approved', error: 'token expired, ask operator to re-approve' });
+        return;
+      }
+      sendJson(res, 200, { requestId: rec.id, status: 'approved', token: rec.token, expiresAt: new Date(rec.expiresAtMs).toISOString(), expiresAtMs: rec.expiresAtMs });
+      return;
+    }
+
+    // ---- Agent 自助部署通道（Bearer 临时令牌 + 有效期）----
     // 与 T4 管理员按钮共用 startDeploy，但鉴权独立、单独限频，便于审计与最小授权。
     if (req.method === 'POST' && path === '/api/agent/deploy') {
       const v = verifyAgentDeploy(req);
@@ -709,9 +763,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Agent 部署令牌轮换（仅 T4 管理员）：生成新令牌 + 有效期 + 持久化 .env + 返回。
-    // 运维拿返回 token 下发给 Agent 本地存储；旧令牌立即失效（天然支持吊销/续期）。
-    if (req.method === 'POST' && path === '/api/t4data/agent-token/rotate') {
+    // ---- Agent 部署令牌：审批 / 吊销（仅 T4 管理员）----
+    // 这些子路径在通用 /api/t4data 代理之前拦截，由网关本地处理（申请记录是网关内存态）。
+    if (path.startsWith('/api/t4data/agent-token/')) {
       if (!CFG.jwtPrivateKey) { sendJson(res, 500, { error: 'gateway JWT not configured' }); return; }
       const token = bearerFrom(req);
       if (!token) { sendJson(res, 401, { error: 'unauthorized: missing bearer' }); return; }
@@ -719,30 +773,79 @@ const server = http.createServer(async (req, res) => {
       try { payload = verifyJwt(token, CFG.jwtPrivateKey); }
       catch { sendJson(res, 401, { error: 'invalid or expired token' }); return; }
       if (payload.typ !== 'admin' || !payload.scp?.some((s) => s === 'admin:platform' || s === 'admin:tenant')) {
-        sendJson(res, 403, { error: 'forbidden: admin (platform/tenant) only may rotate agent token' });
+        sendJson(res, 403, { error: 'forbidden: admin (platform/tenant) only' });
         return;
       }
-      const ttlHours = Number(url.searchParams.get('ttl_hours') || process.env.AGENT_DEPLOY_TOKEN_TTL_HOURS || 168);
-      const newToken = 'agt_' + crypto.randomBytes(24).toString('hex');
-      const expiresAtMs = Date.now() + ttlHours * 3600 * 1000;
-      const expiresAtISO = new Date(expiresAtMs).toISOString();
-      process.env.AGENT_DEPLOY_TOKEN = newToken;
-      process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT = expiresAtISO;
-      try {
-        await persistAgentToken(newToken, expiresAtISO);
-      } catch (e) {
-        console.error('[agent-token] persist failed:', e.message);
-        sendJson(res, 500, { error: 'failed to persist agent token', detail: e.message });
+      const sub = payload.sub || 'admin';
+
+      // 列出申请（pending 优先，其次最近已决）
+      if (req.method === 'GET' && path === '/api/t4data/agent-token/requests') {
+        const list = [...agentTokenRequests.values()]
+          .sort((a, b) => ((a.status === 'pending' ? -1 : 1) - (b.status === 'pending' ? -1 : 1)) || b.createdAt - a.createdAt)
+          .slice(0, 50)
+          .map((r) => ({
+            requestId: r.id, purpose: r.purpose, requestedTtlHours: r.requestedTtlHours,
+            status: r.status, createdAt: r.createdAt, decidedAt: r.decidedAt, decidedBy: r.decidedBy,
+            expiresAtMs: r.expiresAtMs,
+            active: !!(r.token && r.token === process.env.AGENT_DEPLOY_TOKEN && r.expiresAtMs && Date.now() < r.expiresAtMs),
+          }));
+        sendJson(res, 200, { requests: list, activeExists: !!process.env.AGENT_DEPLOY_TOKEN });
         return;
       }
-      console.log(`[agent-token] rotated by admin=${payload.sub} expiresAt=${expiresAtISO}`);
-      sendJson(res, 200, {
-        token: newToken,
-        expiresAt: expiresAtISO,
-        expiresAtMs,
-        ttlHours,
-        note: '将此 token 下发给 Agent，由 Agent 本地安全存储（~/.workbuddy/cloudflarepool-agent.json，chmod 600）。过期后再次调用本端点轮换；旧令牌立即失效。',
-      });
+
+      // 审批：生成并激活临时令牌
+      if (req.method === 'POST' && path === '/api/t4data/agent-token/approve') {
+        let body = {};
+        try { body = await readJson(req); } catch { body = {}; }
+        const rec = agentTokenRequests.get(String(body.requestId || ''));
+        if (!rec) { sendJson(res, 404, { error: 'request not found' }); return; }
+        if (rec.status !== 'pending') { sendJson(res, 409, { error: 'request already ' + rec.status }); return; }
+        const ttlHours = Math.min(72, Math.max(1, Number(body.ttl_hours) || rec.requestedTtlHours || 8));
+        const newToken = 'agt_' + crypto.randomBytes(24).toString('hex');
+        const expiresAtMs = Date.now() + ttlHours * 3600 * 1000;
+        const expiresAtISO = new Date(expiresAtMs).toISOString();
+        rec.token = newToken; rec.expiresAtMs = expiresAtMs; rec.status = 'approved';
+        rec.decidedAt = Date.now(); rec.decidedBy = sub;
+        try { await setActiveAgentToken(newToken, expiresAtISO); }
+        catch (e) { sendJson(res, 500, { error: 'failed to activate token', detail: e.message }); return; }
+        console.log(`[agent-token] approved ${rec.id} by ${sub} ttl=${ttlHours}h`);
+        sendJson(res, 200, {
+          requestId: rec.id, status: 'approved', token: newToken, expiresAt: expiresAtISO, expiresAtMs, ttlHours,
+          note: '令牌已激活，Agent 轮询后将自动取用；可随时在面板「吊销」收回权限。',
+        });
+        return;
+      }
+
+      // 拒绝
+      if (req.method === 'POST' && path === '/api/t4data/agent-token/reject') {
+        let body = {};
+        try { body = await readJson(req); } catch { body = {}; }
+        const rec = agentTokenRequests.get(String(body.requestId || ''));
+        if (!rec) { sendJson(res, 404, { error: 'request not found' }); return; }
+        if (rec.status !== 'pending') { sendJson(res, 409, { error: 'request already ' + rec.status }); return; }
+        rec.status = 'rejected'; rec.decidedAt = Date.now(); rec.decidedBy = sub;
+        console.log(`[agent-token] rejected ${rec.id} by ${sub}`);
+        sendJson(res, 200, { requestId: rec.id, status: 'rejected' });
+        return;
+      }
+
+      // 吊销当前活跃令牌（收回权限）。可指定 requestId，否则吊销当前活跃令牌。
+      if (req.method === 'POST' && path === '/api/t4data/agent-token/revoke') {
+        let body = {};
+        try { body = await readJson(req); } catch { body = {}; }
+        const rid = String(body.requestId || '');
+        if (rid && agentTokenRequests.has(rid)) {
+          const rec = agentTokenRequests.get(rid);
+          rec.status = 'revoked'; rec.decidedAt = Date.now(); rec.decidedBy = sub; rec.token = null;
+        }
+        try { await clearActiveAgentToken(); }
+        catch (e) { sendJson(res, 500, { error: 'failed to revoke token', detail: e.message }); return; }
+        console.log(`[agent-token] revoked by ${sub}${rid ? ' request=' + rid : ' (active)'}`);
+        sendJson(res, 200, { status: 'revoked', note: '活跃令牌已吊销，Agent 后续部署将 401。' });
+        return;
+      }
+
+      sendJson(res, 404, { error: 'unknown agent-token subpath' });
       return;
     }
 

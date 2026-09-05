@@ -118,29 +118,35 @@
 ### 端点
 | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|
-| POST | `/api/agent/deploy` | Agent 静态令牌（Bearer） | 触发部署，返回 `{taskId,status}`（202） |
-| GET | `/api/agent/deploy/status/:id` | Agent 静态令牌（Bearer） | 轮询结构化状态 + 完整日志（500 行，支撑问题定位） |
-| POST | `/api/t4data/agent-token/rotate` | T4 管理员 JWT | 生成新令牌 + 有效期 + 持久化 `.env` + 返回（运维专用） |
+| POST | `/api/agent/token/request` | **公开（无需鉴权）** | Agent 提交 `{purpose, ttl_hours?}` 申请临时令牌，返回 `{requestId, status:pending}` |
+| GET | `/api/agent/token/request/:id` | **公开** | Agent 轮询取用：pending → approved（返回 token+expiresAt）/ rejected / revoked |
+| POST | `/api/agent/deploy` | Agent 临时令牌（Bearer） | 触发部署，返回 `{taskId,status}`（202） |
+| GET | `/api/agent/deploy/status/:id` | Agent 临时令牌（Bearer） | 轮询结构化状态 + 完整日志（500 行，支撑问题定位） |
+| GET | `/api/t4data/agent-token/requests` | T4 管理员 JWT | 列出申请（pending 优先）+ 当前是否有活跃令牌 |
+| POST | `/api/t4data/agent-token/approve` | T4 管理员 JWT | 审批：生成并激活令牌 + 持久化 `.env` + 返回（**管理后台「部署授权」面板调用**） |
+| POST | `/api/t4data/agent-token/reject` | T4 管理员 JWT | 拒绝某申请 |
+| POST | `/api/t4data/agent-token/revoke` | T4 管理员 JWT | **吊销当前活跃令牌（收回权限）**，Agent 后续部署即 401 |
 
-### 权限与有效期控制
-- 网关 `.env` 配 `AGENT_DEPLOY_TOKEN`（格式 `agt_<48hex>`）+ `AGENT_DEPLOY_TOKEN_EXPIRES_AT`（ISO 时间）。
-- 每次调用校验：**令牌值（常量时间比较，防时序侧信道）** + **是否在有效期内**；过期/失效 → 401 并提示轮换。
-- 限频同按钮：每 5 分钟 1 次（key=`agent`）。
-- 令牌轮换：`rotate` 由 T4 管理员调用，生成新令牌并**写回 `.env`**（运行时 `process.env` 同步更新），旧令牌立即失效——天然支持续期与吊销。`ttl_hours` 默认 168（7 天），可参数覆盖。
+### 申请 → 审批 → 取用 → 吊销 模型（最小授权）
+- **Agent 先申请**：`POST /api/agent/token/request {purpose:"部署说明：修复 xx 路由"}` → 网关生成不透明 `requestId`（仅申请方持有），记录 pending。
+- **运维前台审批**：管理后台「部署授权」tab 看到用途备注 → 点「批准」（可改时长，默认 8h）→ 网关生成 `agt_<48hex>` 令牌并激活；点「拒绝」则拒绝。
+- **Agent 轮询取用**：`GET /api/agent/token/request/:id` 直到 `approved` 取回 token（自动缓存本地 `~/.workbuddy`）。
+- **运维随时收回**：面板「吊销当前令牌」→ 活跃令牌清空 → Agent 正在进行/后续的部署立即 401；Agent 会自动重新申请、由运维再次审批。
+- 令牌为**单活跃态**，存 `AGENT_DEPLOY_TOKEN` / `_EXPIRES_AT`（审批时写入并持久化 `.env`，重启仍有效，直到被吊销）。校验含**常量时间比较** + **有效期**。限频同按钮：每 5 分钟 1 次。
 
 ### Agent 本地落地（令牌不进仓库）
-- `scripts/agent-token-store.sh <token> <expiresAtISO> [baseUrl]`：把运维下发的令牌写入 `~/.workbuddy/cloudflarepool-agent.json`（**chmod 600**，位于仓库外 `~/.workbuddy`），仅本地持有。
-- `scripts/agent-deploy.sh [--timeout 300]`：读本地令牌 → 触发 → 轮询日志 → 输出结果；含**本地过期自检**（过期/临期 <24h 告警）、**网关运行时变更提示**（日志含 `gateway runtime updated` 时提示需宝塔重启网关）。
-- ⚠️ 令牌**绝不写进仓库 / 提交**；本地存储文件处于 `~/.workbuddy`，不在任何 git 仓库内。
+- `scripts/agent-deploy.sh "部署说明：…"`：**自包含**——缺失/过期本地缓存则自动申请+轮询审批+缓存，再用令牌触发部署→轮询日志→输出；遇 401（被吊销）自动清空缓存、重新申请一次。全程零 SSH。
+- `scripts/agent-token-store.sh`（**可选·手动兜底**）：仅当你在「部署授权」面板手动复制了令牌时，用它本地存档。正常流程由 `agent-deploy.sh` 自动申请自缓存，无需本脚本。
+- ⚠️ 令牌**绝不写进仓库 / 提交**；本地缓存处于 `~/.workbuddy`，不在任何 git 仓库内。
 
 ### Agent 部署契约（必读）
 1. Agent 编辑 → `git push`（API 只从 GitHub 拉，强制先 push）。
-2. 调 `/api/agent/deploy` → 轮询 `/status/:id` 到 `success` / `failed`。
+2. `bash scripts/agent-deploy.sh "用途说明"` → 自动申请/审批轮询 → 触发 → 轮询 `/status/:id` 到 `success` / `failed`。
 3. 验证只走 HTTP（health / version.json / 新路由 401 vs 404）。
 4. 失败**绝不盲目重试**，直接向 joevan 汇报日志与退出码。
 5. 若日志含 `gateway runtime updated`：本次改了 `server.js`，**进程未重启故新代码未生效**，须由 joevan 在宝塔重启网关（或配 `DEPLOY_RESTART_CMD`）。
-6. 令牌临期（<24h）或过期：提示 joevan 调 `rotate` 换新，Agent 重新 `agent-token-store.sh`。
+6. 令牌由 joevan 审批发放、可随时吊销；Agent 不持有长期凭据，权限窗口 = 审批时刻到吊销/过期。
 
 ---
 
-*文档状态：v2（2026-09-05 增补第六节 Agent 自助部署通道：令牌鉴权 + 有效期 + 轮换 + 本地存储 + 日志轮询）。后续新需求若发现新的 SSH 触发点，回填「失败自愈矩阵」并核对 CheckList。*
+*文档状态：v3（2026-09-05 第六节重构为「申请→审批→取用→吊销」模型：静态令牌改为按需申请、运维前台审批、可随时收回权限；含管理后台「部署授权」面板与自包含 agent-deploy.sh）。后续新需求若发现新的 SSH 触发点，回填「失败自愈矩阵」并核对 CheckList。*

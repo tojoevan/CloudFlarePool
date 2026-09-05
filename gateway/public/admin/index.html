@@ -51,6 +51,7 @@
         <button class="tab" data-tab="security">安全</button>
         <button class="tab hidden" data-tab="admins" id="tab-admins">管理员</button>
         <button class="tab" data-tab="audit">审计</button>
+        <button class="tab" data-tab="deployauth">部署授权</button>
       </nav>
 
       <!-- 概览 -->
@@ -261,6 +262,42 @@
         </div>
         <div class="pager" id="audit-pager"></div>
         <p class="foot" id="audit-meta"></p>
+      </div>
+
+      <!-- 部署授权（Agent 临时令牌审批） -->
+      <div class="panel hidden" id="panel-deployauth">
+        <div class="panel-head">
+          <h2>部署授权（Agent 临时令牌）</h2>
+          <button class="ghost sm" id="da-refresh" type="button">刷新</button>
+        </div>
+        <p class="explain">
+          Agent 部署前会在此提交<strong>用途备注</strong>申请临时令牌；运维审批后才生效，且可<strong>随时吊销</strong>收回权限。
+          令牌为单活跃态、默认 8 小时（审批时可调整），过期或吊销后 Agent 部署将返回 401。
+        </p>
+        <h3 class="sub-h">待审批申请</h3>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr><th>用途备注</th><th>建议时长</th><th>申请时间</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="da-pending"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+          </table>
+        </div>
+        <h3 class="sub-h">近期记录</h3>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr><th>用途备注</th><th>申请时间</th><th>决定</th><th>有效期至</th><th>活跃</th></tr></thead>
+            <tbody id="da-history"><tr><td colspan="5" class="empty">无</td></tr></tbody>
+          </table>
+        </div>
+        <div id="da-token" class="secret-box hidden">
+          <p class="secret-warn">⚠️ 令牌已激活（仅显示一次，Agent 会自动取用）：</p>
+          <code id="da-token-val"></code>
+          <button class="ghost sm" id="da-token-copy" type="button">复制</button>
+        </div>
+        <div class="panel-head" style="margin-top:18px">
+          <h3 class="sub-h" style="margin:0">收回权限</h3>
+          <button class="act danger sm" id="da-revoke" type="button">吊销当前令牌</button>
+        </div>
+        <p class="foot">吊销后 Agent 正在进行的部署会立即失效；如需再次部署，Agent 会重新申请、由你再次审批。</p>
       </div>
     </section>
     <footer class="footer">

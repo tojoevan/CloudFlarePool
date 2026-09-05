@@ -337,6 +337,8 @@ button.ghost.sm { border: 1px solid var(--line); border-radius: 8px; }
 .badge.ok { background: #e6f1e9; color: #2f5d3a; }
 .badge.bad { background: #f6e6e1; color: #8a3b2c; }
 
+.sub-h { margin: 18px 0 10px; font-size: 14px; font-weight: 700; color: var(--ink); }
+
 /* 密钥一次性显示 */
 .secret-box {
   border: 1px dashed var(--danger);

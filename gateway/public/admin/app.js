@@ -844,6 +844,7 @@ function switchTab(name) {
   if (name === 'keys') { $('#key-secret').classList.add('hidden'); loadKeys(); }
   if (name === 'audit') loadAudit();
   if (name === 'admins') loadAdmins();
+  if (name === 'deployauth') loadDeployAuth();
 }
 
 function logout() {
@@ -974,6 +975,35 @@ $('#ver-copy').addEventListener('click', copyVersion);
 $('#deploy-btn').addEventListener('click', deploy);
 $('#deploy-close').addEventListener('click', () => $('#deploy-overlay').classList.add('hidden'));
 
+// 部署授权（Agent 临时令牌审批）
+$('#da-refresh').addEventListener('click', loadDeployAuth);
+$('#da-pending').addEventListener('click', async (e) => {
+  const ap = e.target.getAttribute('data-approve');
+  const rj = e.target.getAttribute('data-reject');
+  if (ap) {
+    const ttl = Number($('#da-ttl-' + ap).value) || 8;
+    try {
+      const r = await api('/api/t4data/agent-token/approve', { method: 'POST', body: JSON.stringify({ requestId: ap, ttl_hours: ttl }) });
+      $('#da-token-val').textContent = r.token;
+      $('#da-token').classList.remove('hidden');
+      toast('已批准，令牌已激活');
+      loadDeployAuth();
+    } catch (err) { toast(err.message, false); }
+  } else if (rj) {
+    try { await api('/api/t4data/agent-token/reject', { method: 'POST', body: JSON.stringify({ requestId: rj }) }); toast('已拒绝'); loadDeployAuth(); }
+    catch (err) { toast(err.message, false); }
+  }
+});
+$('#da-token-copy').addEventListener('click', () => {
+  const v = $('#da-token-val').textContent;
+  navigator.clipboard?.writeText(v).then(() => toast('已复制')).catch(() => toast('复制失败', false));
+});
+$('#da-revoke').addEventListener('click', async () => {
+  if (!confirm('确认吊销当前 Agent 部署令牌？Agent 正在进行的部署将立即失效。')) return;
+  try { await api('/api/t4data/agent-token/revoke', { method: 'POST', body: '{}' }); $('#da-token').classList.add('hidden'); toast('已吊销'); loadDeployAuth(); }
+  catch (err) { toast(err.message, false); }
+});
+
 // 数据浏览器事件
 $('#data-table').addEventListener('change', (e) => {
   dataState.table = e.target.value;
@@ -1100,6 +1130,51 @@ async function deploy() {
     btn.disabled = false;
   }
   // 注意：成功触发后不在此处解禁按钮，改由 pollDeploy 在任务结束时解禁
+}
+
+// ---- 部署授权（Agent 临时令牌审批）----
+function daBadge(status) {
+  const map = {
+    pending: ['待审批', 'badge bad'], approved: ['已批准', 'badge ok'],
+    rejected: ['已拒绝', 'badge bad'], revoked: ['已吊销', 'badge bad'],
+  };
+  const [txt, cls] = map[status] || [status, ''];
+  return `<span class="${cls}">${esc(txt)}</span>`;
+}
+async function loadDeployAuth() {
+  try {
+    const d = await api('/api/t4data/agent-token/requests');
+    renderDeployAuth(d);
+  } catch (err) { toast(err.message, false); }
+}
+function renderDeployAuth(d) {
+  const all = d.requests || [];
+  const pending = all.filter((r) => r.status === 'pending');
+  const history = all.filter((r) => r.status !== 'pending');
+  const pe = $('#da-pending');
+  if (!pending.length) pe.innerHTML = '<tr><td colspan="5" class="empty">暂无待审批申请</td></tr>';
+  else pe.innerHTML = pending.map((r) => `
+    <tr>
+      <td>${esc(r.purpose)}</td>
+      <td>${r.requestedTtlHours}h</td>
+      <td>${fmtTime(r.createdAt)}</td>
+      <td>${daBadge(r.status)}</td>
+      <td>
+        <input class="sm" type="number" min="1" max="72" value="${r.requestedTtlHours}" id="da-ttl-${esc(r.requestId)}" style="width:60px;display:inline-block;vertical-align:middle" />
+        <button class="primary sm" data-approve="${esc(r.requestId)}" type="button">批准</button>
+        <button class="ghost sm" data-reject="${esc(r.requestId)}" type="button">拒绝</button>
+      </td>
+    </tr>`).join('');
+  const he = $('#da-history');
+  if (!history.length) he.innerHTML = '<tr><td colspan="5" class="empty">无</td></tr>';
+  else he.innerHTML = history.map((r) => `
+    <tr>
+      <td>${esc(r.purpose)}</td>
+      <td>${fmtTime(r.createdAt)}</td>
+      <td>${daBadge(r.status)}</td>
+      <td>${r.expiresAtMs ? fmtTime(r.expiresAtMs) : '-'}</td>
+      <td>${r.active ? '✓ 活跃' : '-'}</td>
+    </tr>`).join('');
 }
 
 // 启动：有令牌则恢复会话（重建角色/身份/租户下拉），否则进登录页
