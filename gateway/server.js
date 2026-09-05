@@ -1,6 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
-import { readFile } from 'node:fs/promises';
+import crypto from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
@@ -74,6 +75,50 @@ function readGatewayGit() {
 // 部署限频：每位 platform-admin 每 5 分钟最多触发 1 次（防止误点/滥用）
 const DEPLOY_INTERVAL_MS = 5 * 60 * 1000;
 const deployRate = new Map();
+
+// ---- Agent 自助部署通道 ----
+// Agent 经 Bearer 静态令牌 + 有效期，调用 /api/agent/deploy 触发部署（全程零 SSH）。
+// 令牌由运维经 T4 管理员端点 /api/t4data/agent-token/rotate 轮换并下发给 Agent；
+// Agent 本地（~/.workbuddy）仅存令牌，绝不进仓库。过期即 401。
+const AGENT_TOKEN = process.env.AGENT_DEPLOY_TOKEN || '';
+const AGENT_TOKEN_EXPIRES_AT = process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT
+  ? Date.parse(process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT)
+  : 0;
+
+function verifyAgentDeploy(req) {
+  const token = bearerFrom(req);
+  if (!token) return { ok: false, status: 401, error: 'unauthorized: missing agent bearer' };
+  if (!AGENT_TOKEN) return { ok: false, status: 503, error: 'agent deploy not configured (no AGENT_DEPLOY_TOKEN on gateway)' };
+  const a = Buffer.from(token);
+  const b = Buffer.from(AGENT_TOKEN);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return { ok: false, status: 403, error: 'forbidden: invalid agent token' };
+  }
+  if (!AGENT_TOKEN_EXPIRES_AT || Date.now() > AGENT_TOKEN_EXPIRES_AT) {
+    return { ok: false, status: 401, error: 'agent token expired, ask operator to rotate (POST /api/t4data/agent-token/rotate)' };
+  }
+  return { ok: true };
+}
+
+// 将 Agent 部署令牌持久化回网关 .env（运行时已同步更新 process.env，重启后仍有效）。
+async function persistAgentToken(token, expiresAtISO) {
+  const envPath = join(__dirname, '.env');
+  let text = '';
+  try { text = await readFile(envPath, 'utf8'); } catch { text = ''; }
+  const set = (key, val) => {
+    const lines = text.split('\n');
+    let found = false;
+    for (let i = 0; i < lines.length; i++) {
+      const eq = lines[i].indexOf('=');
+      if (eq === -1) continue;
+      if (lines[i].slice(0, eq).trim() === key) { lines[i] = `${key}=${val}`; found = true; break; }
+    }
+    text = found ? lines.join('\n') : `${text}${text.endsWith('\n') ? '' : '\n'}${key}=${val}\n`;
+  };
+  set('AGENT_DEPLOY_TOKEN', token);
+  set('AGENT_DEPLOY_TOKEN_EXPIRES_AT', expiresAtISO);
+  await writeFile(envPath, text, { mode: 0o600 });
+}
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -624,6 +669,80 @@ const server = http.createServer(async (req, res) => {
       console.log(`[deploy] triggered by admin=${payload.sub} task=${task.id}`);
 
       sendJson(res, 202, { taskId: task.id, status: task.status, message: '部署已触发，正在异步执行' });
+      return;
+    }
+
+    // ---- Agent 自助部署通道（Bearer 静态令牌 + 有效期）----
+    // 与 T4 管理员按钮共用 startDeploy，但鉴权独立、单独限频，便于审计与最小授权。
+    if (req.method === 'POST' && path === '/api/agent/deploy') {
+      const v = verifyAgentDeploy(req);
+      if (!v.ok) { sendJson(res, v.status, { error: v.error }); return; }
+      const now = Date.now();
+      const last = deployRate.get('agent') || 0;
+      if (now - last < DEPLOY_INTERVAL_MS) {
+        const retryAfter = Math.ceil((DEPLOY_INTERVAL_MS - (now - last)) / 1000);
+        sendJson(res, 429, { error: 'deploy rate limited, retry later', retryAfter });
+        return;
+      }
+      deployRate.set('agent', now);
+      const script = process.env.DEPLOY_SCRIPT || join(process.env.DEPLOY_REPO_DIR || __dirname, 'scripts', 'deploy.sh');
+      let task;
+      try {
+        task = startDeploy({ script, adminId: 'agent', source: 'agent' });
+      } catch (e) {
+        sendJson(res, 500, { error: 'failed to start deploy', detail: e.message });
+        return;
+      }
+      console.log(`[deploy] triggered by agent task=${task.id}`);
+      sendJson(res, 202, { taskId: task.id, status: task.status, source: 'agent', message: '部署已触发，正在异步执行' });
+      return;
+    }
+
+    // Agent 部署日志轮询：返回结构化状态 + 完整日志（limit 放大到 500，支撑问题定位）
+    const agentStatusMatch = path.match(/^\/api\/agent\/deploy\/status\/([\w-]+)$/);
+    if (req.method === 'GET' && agentStatusMatch) {
+      const v = verifyAgentDeploy(req);
+      if (!v.ok) { sendJson(res, v.status, { error: v.error }); return; }
+      const task = getDeployStatus(agentStatusMatch[1], { limit: 500 });
+      if (!task) { sendJson(res, 404, { error: 'task not found (gateway may have restarted)' }); return; }
+      sendJson(res, 200, task);
+      return;
+    }
+
+    // Agent 部署令牌轮换（仅 T4 管理员）：生成新令牌 + 有效期 + 持久化 .env + 返回。
+    // 运维拿返回 token 下发给 Agent 本地存储；旧令牌立即失效（天然支持吊销/续期）。
+    if (req.method === 'POST' && path === '/api/t4data/agent-token/rotate') {
+      if (!CFG.jwtPrivateKey) { sendJson(res, 500, { error: 'gateway JWT not configured' }); return; }
+      const token = bearerFrom(req);
+      if (!token) { sendJson(res, 401, { error: 'unauthorized: missing bearer' }); return; }
+      let payload;
+      try { payload = verifyJwt(token, CFG.jwtPrivateKey); }
+      catch { sendJson(res, 401, { error: 'invalid or expired token' }); return; }
+      if (payload.typ !== 'admin' || !payload.scp?.some((s) => s === 'admin:platform' || s === 'admin:tenant')) {
+        sendJson(res, 403, { error: 'forbidden: admin (platform/tenant) only may rotate agent token' });
+        return;
+      }
+      const ttlHours = Number(url.searchParams.get('ttl_hours') || process.env.AGENT_DEPLOY_TOKEN_TTL_HOURS || 168);
+      const newToken = 'agt_' + crypto.randomBytes(24).toString('hex');
+      const expiresAtMs = Date.now() + ttlHours * 3600 * 1000;
+      const expiresAtISO = new Date(expiresAtMs).toISOString();
+      process.env.AGENT_DEPLOY_TOKEN = newToken;
+      process.env.AGENT_DEPLOY_TOKEN_EXPIRES_AT = expiresAtISO;
+      try {
+        await persistAgentToken(newToken, expiresAtISO);
+      } catch (e) {
+        console.error('[agent-token] persist failed:', e.message);
+        sendJson(res, 500, { error: 'failed to persist agent token', detail: e.message });
+        return;
+      }
+      console.log(`[agent-token] rotated by admin=${payload.sub} expiresAt=${expiresAtISO}`);
+      sendJson(res, 200, {
+        token: newToken,
+        expiresAt: expiresAtISO,
+        expiresAtMs,
+        ttlHours,
+        note: '将此 token 下发给 Agent，由 Agent 本地安全存储（~/.workbuddy/cloudflarepool-agent.json，chmod 600）。过期后再次调用本端点轮换；旧令牌立即失效。',
+      });
       return;
     }
 

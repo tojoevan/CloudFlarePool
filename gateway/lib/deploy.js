@@ -22,7 +22,7 @@ function appendLog(task, chunk) {
 
 // 启动一次部署。script 为 bash 部署脚本的绝对路径；env 追加到子进程环境。
 // 返回 { id, status, startedAt }。
-export function startDeploy({ script, env = {}, adminId = null } = {}) {
+export function startDeploy({ script, env = {}, adminId = null, source = null } = {}) {
   const id = randomUUID();
   const task = {
     id,
@@ -31,6 +31,7 @@ export function startDeploy({ script, env = {}, adminId = null } = {}) {
     finishedAt: null,
     exitCode: null,
     adminId,
+    source,
     log: [],
   };
   tasks.set(id, task);
@@ -63,15 +64,17 @@ export function startDeploy({ script, env = {}, adminId = null } = {}) {
 }
 
 // 返回任务状态快照；未知 id 返回 null（前端据此判断任务已不可见）。
-export function getDeployStatus(id) {
+// limit 控制返回日志行数（默认 60；Agent 通道传 500 取全量，支撑问题定位）。
+export function getDeployStatus(id, { limit = 60 } = {}) {
   const t = tasks.get(id);
   if (!t) return null;
   return {
     id: t.id,
     status: t.status,
+    source: t.source,
     startedAt: t.startedAt,
     finishedAt: t.finishedAt,
     exitCode: t.exitCode,
-    log: t.log.slice(-60),
+    log: t.log.slice(-limit),
   };
 }

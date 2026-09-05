@@ -66,7 +66,7 @@
 
 ### B. 部署路径选择（按改动落点选一路）
 - [ ] **只动数据湖** → 本地 `wrangler deploy`（零 SSH）
-- [ ] **动网关 server.js / lib / SPA** → 点「版本更新」按钮（零 SSH）
+- [ ] **动网关 server.js / lib / SPA** → 点「版本更新」按钮，或 Agent 自助 `bash scripts/agent-deploy.sh`（零 SSH，需先 `agent-token-store.sh` 存令牌）
 - [ ] **动 D1 schema** → 本地 `wrangler d1 execute --remote --file=<migrate.sql>`（零 SSH）
 - [ ] ⚠️ 若改了 `server.js`：确认 `DEPLOY_RESTART_CMD`（如 `pm2 restart home-inkspcl`）已在网关 `.env` 配好，否则按钮只同步代码、不重启进程——仍需在宝塔手动重启
 
@@ -111,4 +111,36 @@
 
 ---
 
-*文档状态：v1（2026-09-05 初版，基于一次部署排障复盘）。后续新需求若发现新的 SSH 触发点，回填「失败自愈矩阵」并核对 CheckList。*
+## 六、Agent 自助部署通道（零 SSH 进阶）
+
+把「(b) 网关 / SPA 部署」从"人工点按钮"升级为"Agent 经 API 自助触发"——本质仍是同一个 `deploy.sh`，只是触发方从浏览器换成 Agent 的 HTTP 调用。详见 `gateway/server.js` 的 `/api/agent/*` 与 `scripts/agent-*.sh`。
+
+### 端点
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| POST | `/api/agent/deploy` | Agent 静态令牌（Bearer） | 触发部署，返回 `{taskId,status}`（202） |
+| GET | `/api/agent/deploy/status/:id` | Agent 静态令牌（Bearer） | 轮询结构化状态 + 完整日志（500 行，支撑问题定位） |
+| POST | `/api/t4data/agent-token/rotate` | T4 管理员 JWT | 生成新令牌 + 有效期 + 持久化 `.env` + 返回（运维专用） |
+
+### 权限与有效期控制
+- 网关 `.env` 配 `AGENT_DEPLOY_TOKEN`（格式 `agt_<48hex>`）+ `AGENT_DEPLOY_TOKEN_EXPIRES_AT`（ISO 时间）。
+- 每次调用校验：**令牌值（常量时间比较，防时序侧信道）** + **是否在有效期内**；过期/失效 → 401 并提示轮换。
+- 限频同按钮：每 5 分钟 1 次（key=`agent`）。
+- 令牌轮换：`rotate` 由 T4 管理员调用，生成新令牌并**写回 `.env`**（运行时 `process.env` 同步更新），旧令牌立即失效——天然支持续期与吊销。`ttl_hours` 默认 168（7 天），可参数覆盖。
+
+### Agent 本地落地（令牌不进仓库）
+- `scripts/agent-token-store.sh <token> <expiresAtISO> [baseUrl]`：把运维下发的令牌写入 `~/.workbuddy/cloudflarepool-agent.json`（**chmod 600**，位于仓库外 `~/.workbuddy`），仅本地持有。
+- `scripts/agent-deploy.sh [--timeout 300]`：读本地令牌 → 触发 → 轮询日志 → 输出结果；含**本地过期自检**（过期/临期 <24h 告警）、**网关运行时变更提示**（日志含 `gateway runtime updated` 时提示需宝塔重启网关）。
+- ⚠️ 令牌**绝不写进仓库 / 提交**；本地存储文件处于 `~/.workbuddy`，不在任何 git 仓库内。
+
+### Agent 部署契约（必读）
+1. Agent 编辑 → `git push`（API 只从 GitHub 拉，强制先 push）。
+2. 调 `/api/agent/deploy` → 轮询 `/status/:id` 到 `success` / `failed`。
+3. 验证只走 HTTP（health / version.json / 新路由 401 vs 404）。
+4. 失败**绝不盲目重试**，直接向 joevan 汇报日志与退出码。
+5. 若日志含 `gateway runtime updated`：本次改了 `server.js`，**进程未重启故新代码未生效**，须由 joevan 在宝塔重启网关（或配 `DEPLOY_RESTART_CMD`）。
+6. 令牌临期（<24h）或过期：提示 joevan 调 `rotate` 换新，Agent 重新 `agent-token-store.sh`。
+
+---
+
+*文档状态：v2（2026-09-05 增补第六节 Agent 自助部署通道：令牌鉴权 + 有效期 + 轮换 + 本地存储 + 日志轮询）。后续新需求若发现新的 SSH 触发点，回填「失败自愈矩阵」并核对 CheckList。*

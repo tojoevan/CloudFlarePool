@@ -97,6 +97,7 @@ echo "[deploy] SPA synced"
 # node_modules 沿用 WEB_ROOT 既有副本；若缺失则软链到 REPO_DIR/node_modules（deploy.sh 已 npm ci 过）。
 echo "[deploy] sync gateway runtime to WEB_ROOT..."
 cp -r gateway/server.js gateway/lib "$WEB_ROOT/" 2>/dev/null || true
+echo "[deploy] gateway runtime updated: server.js (requires gateway restart to take effect)"
 if [ ! -e "$WEB_ROOT/node_modules" ] && [ -d "$REPO_DIR/node_modules" ]; then
   ln -sfn "$REPO_DIR/node_modules" "$WEB_ROOT/node_modules"
   echo "[deploy] symlinked node_modules -> $REPO_DIR/node_modules"
