@@ -1160,8 +1160,8 @@ function renderDeployAuth(d) {
       <td>${fmtTime(r.createdAt)}</td>
       <td>${daBadge(r.status)}</td>
       <td>
-        <input class="sm" type="number" min="1" max="72" value="${r.requestedTtlHours}" id="da-ttl-${esc(r.requestId)}" style="width:60px;display:inline-block;vertical-align:middle" />
         <button class="primary sm" data-approve="${esc(r.requestId)}" type="button">批准</button>
+        <input class="sm" type="number" min="1" max="72" value="${r.requestedTtlHours}" id="da-ttl-${esc(r.requestId)}" style="width:60px;display:inline-block;vertical-align:middle" />
         <button class="ghost sm" data-reject="${esc(r.requestId)}" type="button">拒绝</button>
       </td>
     </tr>`).join('');
