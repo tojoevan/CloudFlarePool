@@ -2,7 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 import crypto from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { loadDotEnv } from './lib/dotenv.js';
@@ -240,6 +240,69 @@ function proxyToLake(req, res, tenantId, restPath) {
   req.pipe(proxyReq);
 }
 
+// ---- 语义契约路由（G1）：/api/v1/* 对外契约 → 数据湖内部路径 ----
+// 目标：数据湖的路径形状只允许出现在 gateway/routes.json 里，业务端永远只见 /api/v1/*。
+// 映射表外置 + 按 mtime 热加载：改映射连重启都不需要（网关重启需宝塔，成本高）。
+// 表缺失/损坏 → 本通道整体 503，旧通道（/api/data/* 等）完全不受影响，绝不静默透传。
+const ROUTE_TABLE_PATH = join(__dirname, 'routes.json');
+let routeTableCache = { mtimeMs: -1, routes: null };
+
+function loadRouteTable() {
+  try {
+    const st = statSync(ROUTE_TABLE_PATH);
+    if (st.mtimeMs !== routeTableCache.mtimeMs) {
+      const parsed = JSON.parse(readFileSync(ROUTE_TABLE_PATH, 'utf8'));
+      if (!parsed || !Array.isArray(parsed.routes)) throw new Error('invalid route table');
+      routeTableCache = { mtimeMs: st.mtimeMs, routes: parsed.routes };
+    }
+    return routeTableCache.routes;
+  } catch {
+    routeTableCache = { mtimeMs: -1, routes: null };
+    return null;
+  }
+}
+
+function matchPath(pattern, pathname) {
+  const p = pattern.split('/').filter(Boolean);
+  const q = pathname.split('/').filter(Boolean);
+  if (p.length !== q.length) return null;
+  const params = {};
+  for (let i = 0; i < p.length; i++) {
+    if (p[i].startsWith(':')) params[p[i].slice(1)] = decodeURIComponent(q[i]);
+    else if (p[i] !== q[i]) return null;
+  }
+  return params;
+}
+
+function matchRoute(routes, pathname, method) {
+  for (const r of routes) {
+    if (Array.isArray(r.methods) && r.methods.length && !r.methods.includes(method)) continue;
+    const params = matchPath(r.match, pathname);
+    if (!params) continue;
+    let to = r.to;
+    for (const [k, v] of Object.entries(params)) to = to.split(':' + k).join(v);
+    return { to, params };
+  }
+  return null;
+}
+
+// T2/T3 通道：保留 Bearer 交给数据湖验签（同步道会剥掉 Authorization 改注入 X-Sync-Key）
+function forwardBearer(req, res, tenantId, restPath) {
+  const target = new URL(`/t/${encodeURIComponent(tenantId)}/${restPath}`, CFG.dataLakeBase);
+  const headers = { ...req.headers };
+  delete headers['host'];
+  const transport = target.protocol === 'https:' ? https : http;
+  const proxyReq = transport.request(target, { method: req.method, headers }, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode || 502, filterOutgoing(proxyRes.headers));
+    proxyRes.pipe(res);
+  });
+  proxyReq.on('error', () => {
+    if (!res.headersSent) sendJson(res, 502, { error: 'data lake unreachable' });
+    else res.end();
+  });
+  req.pipe(proxyReq);
+}
+
 // 回传时去掉会让客户端误判的逐跳头
 function filterOutgoing(h) {
   const out = { ...h };
@@ -440,6 +503,46 @@ const server = http.createServer(async (req, res) => {
       } catch {
         sendJson(res, 502, { error: 'data lake unreachable' });
       }
+      return;
+    }
+
+    // 4-0) 语义契约通道 /api/v1/*（G1）：业务只认这里，数据湖路径由 routes.json 屏蔽。
+    //      T1 会话令牌（小程序）与 T2 账号令牌（SPA）共用一套契约，仅鉴权分派不同。
+    if (path === '/api/v1' || path.startsWith('/api/v1/')) {
+      const table = loadRouteTable();
+      if (!table) { sendJson(res, 503, { error: 'v1 contract unavailable: route table missing or invalid' }); return; }
+      const hit = matchRoute(table, path, req.method);
+      if (!hit) { sendJson(res, 404, { error: 'v1 route not in published contract', path }); return; }
+      const token = bearerFrom(req);
+      if (!token) { sendJson(res, 401, { error: 'unauthorized: missing bearer' }); return; }
+      let tenantId = '';
+      let openid = '';
+      let mode = '';
+      try {
+        const claims = verifySession(token, CFG.sessionSecret);
+        tenantId = claims.tenantId || CFG.tenantId;
+        openid = claims.openid || '';
+        mode = 'synckey';
+      } catch {
+        try {
+          const payload = verifyJwt(token, CFG.jwtPrivateKey);
+          if (payload.typ !== 'account') throw new Error('not an account token');
+          tenantId = payload.tid === 'cloudlet' ? 'cloudlet' : CFG.tenantId;
+          openid = payload.sub || '';
+          mode = 'bearer';
+        } catch {
+          sendJson(res, 401, { error: 'unauthorized' });
+          return;
+        }
+      }
+      const qIdx = req.url.indexOf('?');
+      const query = qIdx === -1 ? '' : req.url.slice(qIdx);
+      const rest = hit.to
+        .replace('{tenant}', encodeURIComponent(tenantId))
+        .replace(/^\/t\/[^/]+\//, '') + query;
+      req.ctx = { openid };
+      if (mode === 'synckey') proxyToLake(req, res, tenantId, rest);
+      else forwardBearer(req, res, tenantId, rest);
       return;
     }
 

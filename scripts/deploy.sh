@@ -97,7 +97,10 @@ echo "[deploy] SPA synced"
 # node_modules 沿用 WEB_ROOT 既有副本；若缺失则软链到 REPO_DIR/node_modules（deploy.sh 已 npm ci 过）。
 echo "[deploy] sync gateway runtime to WEB_ROOT..."
 cp -r gateway/server.js gateway/lib "$WEB_ROOT/" 2>/dev/null || true
-echo "[deploy] gateway runtime updated: server.js (requires gateway restart to take effect)"
+# 语义契约映射表（G1）：外置 + 按 mtime 热加载，改映射**免重启**；但文件本身必须同步到运行目录，
+# 否则线上无表 → /api/v1/* 整体 503（旧通道不受影响）。勿漏。
+cp gateway/routes.json "$WEB_ROOT/routes.json" 2>/dev/null || true
+echo "[deploy] gateway runtime updated: server.js + routes.json (server.js requires gateway restart; routes.json hot-reloads)"
 if [ ! -e "$WEB_ROOT/node_modules" ] && [ -d "$REPO_DIR/node_modules" ]; then
   ln -sfn "$REPO_DIR/node_modules" "$WEB_ROOT/node_modules"
   echo "[deploy] symlinked node_modules -> $REPO_DIR/node_modules"

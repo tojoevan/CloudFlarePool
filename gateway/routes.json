@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "note": "网关对外契约映射表（G1）。match=对外语义路径，to=内部数据湖路径。数据湖路径只允许出现在本文件。",
+  "tenantFrom": "token",
+  "routes": [
+    { "match": "/api/v1/todos", "to": "/t/{tenant}/todos", "methods": ["GET", "POST"] },
+    { "match": "/api/v1/todos/:id", "to": "/t/{tenant}/todos/:id", "methods": ["PUT", "DELETE"] },
+    { "match": "/api/v1/tasks", "to": "/t/{tenant}/tasks", "methods": ["GET", "POST"] },
+    { "match": "/api/v1/tasks/:id", "to": "/t/{tenant}/tasks/:id", "methods": ["PUT", "DELETE"] },
+    { "match": "/api/v1/archive", "to": "/t/{tenant}/archive", "methods": ["GET", "POST"] },
+    { "match": "/api/v1/archive/:id", "to": "/t/{tenant}/archive/:id", "methods": ["PUT", "DELETE"] },
+    { "match": "/api/v1/shared", "to": "/t/{tenant}/family/shared", "methods": ["GET"] },
+    { "match": "/api/v1/shared/perm", "to": "/t/{tenant}/family/shared/perm", "methods": ["POST"] },
+    { "match": "/api/v1/shared/done", "to": "/t/{tenant}/family/shared/done", "methods": ["POST"] },
+    { "match": "/api/v1/files", "to": "/t/{tenant}/img", "methods": ["POST"] },
+    { "match": "/api/v1/files/:key", "to": "/t/{tenant}/img/:key", "methods": ["GET"] },
+    { "match": "/api/v1/me/export", "to": "/t/{tenant}/me/export", "methods": ["GET"] },
+    { "match": "/api/v1/me/deletion", "to": "/t/{tenant}/me/deletion-request", "methods": ["POST"] },
+    { "match": "/api/v1/me/deletion/cancel", "to": "/t/{tenant}/me/deletion-cancel", "methods": ["POST"] },
+    { "match": "/api/v1/me/deletion/status", "to": "/t/{tenant}/me/deletion-status", "methods": ["GET"] },
+    { "match": "/api/v1/me", "to": "/t/{tenant}/me", "methods": ["DELETE"] },
+    { "match": "/api/v1/families", "to": "/t/{tenant}/family", "methods": ["POST"] },
+    { "match": "/api/v1/families/mine", "to": "/t/{tenant}/family/mine", "methods": ["GET"] },
+    { "match": "/api/v1/families/invite", "to": "/t/{tenant}/family/invite", "methods": ["POST"] },
+    { "match": "/api/v1/families/invite/info", "to": "/t/{tenant}/family/invite/info", "methods": ["GET"] },
+    { "match": "/api/v1/families/accept", "to": "/t/{tenant}/family/accept", "methods": ["POST"] },
+    { "match": "/api/v1/families/members", "to": "/t/{tenant}/family/members", "methods": ["GET"] },
+    { "match": "/api/v1/families/leave", "to": "/t/{tenant}/family/leave", "methods": ["POST"] },
+    { "match": "/api/v1/families/transfer", "to": "/t/{tenant}/family/transfer", "methods": ["POST"] },
+    { "match": "/api/v1/families/nickname", "to": "/t/{tenant}/family/nickname", "methods": ["POST"] }
+  ]
+}
