@@ -36,7 +36,7 @@ const CFG = {
   // 此处同样允许 agent 经 T3 访问其数据湖租户。逗号分隔，默认 weijiashi + cloudlet。
   mintTenants: (process.env.MINT_TENANTS || 'weijiashi,cloudlet').split(',').map((s) => s.trim()).filter(Boolean),
   // 独立部署的 Web 客户端域名白名单（CORS 放行）。逗号分隔，需带 scheme 且不带结尾斜杠，
-  // 例：https://weijiashi.inkspcl.com。留空=不放行任何跨域请求（保持同源托管时期的行为）。
+  // 例：https://family.inkspcl.com。留空=不放行任何跨域请求（保持同源托管时期的行为）。
   corsOrigins: (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
 };
 
