@@ -35,6 +35,9 @@ const CFG = {
   // 运营代签（/api/t4data/tokens/mint）允许签出的租户白名单。cloudlet 走 T2 通道，
   // 此处同样允许 agent 经 T3 访问其数据湖租户。逗号分隔，默认 weijiashi + cloudlet。
   mintTenants: (process.env.MINT_TENANTS || 'weijiashi,cloudlet').split(',').map((s) => s.trim()).filter(Boolean),
+  // 独立部署的 Web 客户端域名白名单（CORS 放行）。逗号分隔，需带 scheme 且不带结尾斜杠，
+  // 例：https://weijiashi.inkspcl.com。留空=不放行任何跨域请求（保持同源托管时期的行为）。
+  corsOrigins: (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
 };
 
 // 网关密钥环：持有服务密钥 raw_secret 以便为 agent 代签 T3 Bearer。
@@ -338,6 +341,19 @@ function jwtPayloadUnsafe(token) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    // 0) CORS：放行独立部署的 Web 客户端。
+    //    Allow-Origin 必须回显白名单中的具体 Origin——请求带 Authorization 头，不能用 *。
+    //    未配置 CORS_ORIGINS 时不写任何 CORS 头，行为与改造前完全一致（同源托管）。
+    const reqOrigin = req.headers.origin;
+    if (reqOrigin && CFG.corsOrigins.includes(reqOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Max-Age', '86400');
+    }
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const path = url.pathname;
 
